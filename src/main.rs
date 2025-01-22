@@ -1,59 +1,16 @@
 use core::convert::TryInto;
-use core::time::Duration;
-use log::{error, info};
+use log::info;
 
-use embedded_svc::{
-    http::client::Client,
-    io::Write,
-    utils::io,
-    wifi::{AuthMethod, ClientConfiguration, Configuration},
-};
+use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
 
 use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
-use esp_idf_svc::http::client::{Configuration as HttpConfiguration, EspHttpConnection};
 use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
 
-use serde::{Deserialize, Serialize};
-use serde_json;
-
-//use rgb::RGB8;
 use rgb_led::{RGB8, WS2812RMT};
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DexcomLogin {
-    account_name: String,
-    password: String,
-    application_id: String,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DexcomSession {
-    account_id: String,
-    password: String,
-    application_id: String,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DexcomGlucose {
-    session_id: String,
-    minutes: isize,
-    max_count: isize,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-//#[serde(rename_all = "camelCase")]
-struct DexcomGlucoseReading {
-    WT: String,
-    ST: String,
-    DT: String,
-    Value: isize,
-    Trend: String,
-}
+use cgmlamp::dexcom::dexcom::{Dexcom, DexcomGlucoseReading};
 
 #[toml_cfg::toml_config]
 pub struct Config {
@@ -66,15 +23,6 @@ pub struct Config {
     #[default(" ")]
     dexcom_pass: &'static str,
 }
-
-const DEXCOM_BASE_URL: &str = "https://share1.dexcom.com/ShareWebServices/Services";
-const DEXCOM_APPLICATION_ID: &str = "d89443d2-327c-4a6f-89e5-496bbb0317db";
-
-const DEXCOM_LOGIN_ID_ENDPOINT: &str = "General/LoginPublisherAccountById";
-const DEXCOM_AUTHENTICATE_ENDPOINT: &str = "General/AuthenticatePublisherAccount";
-const DEXCOM_GLUCOSE_READINGS_ENDPOINT: &str = "Publisher/ReadPublisherLatestGlucoseValues";
-
-const DEXCOM_MAX_MAX_COUNT: isize = 288;
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -105,66 +53,22 @@ fn main() -> anyhow::Result<()> {
 
     connect_wifi(&mut wifi, app_config.wifi_ssid, app_config.wifi_pass)?;
 
-    // Make https client
-    let connection = EspHttpConnection::new(&HttpConfiguration {
-        use_global_ca_store: true,
-        crt_bundle_attach: Some(esp_idf_svc::sys::esp_crt_bundle_attach),
-        ..Default::default()
-    })?;
-    let mut client = Client::wrap(connection);
-
-    //post_request(&mut client)?;
-
     // Get user id
-    let login_ctx = DexcomLogin {
-        account_name: app_config.dexcom_user.to_string(),
-        password: app_config.dexcom_pass.to_string(),
-        application_id: DEXCOM_APPLICATION_ID.into(),
-    };
-    let auth_url = format!("{DEXCOM_BASE_URL}/{DEXCOM_AUTHENTICATE_ENDPOINT}");
-    let user_id_json = post(
-        &mut client,
-        &auth_url,
-        &(serde_json::to_string(&login_ctx).unwrap()),
-    )
-    .unwrap();
-    let user_id = serde_json::from_str(&user_id_json).unwrap();
+    let mut dexcom = Dexcom::new();
+    let user_id = dexcom
+        .get_user_id(app_config.dexcom_user, app_config.dexcom_pass)
+        .unwrap();
     info!("user id: {}", user_id);
 
     // Login
-    let session_ctx = DexcomSession {
-        account_id: user_id,
-        password: app_config.dexcom_pass.to_string(),
-        application_id: DEXCOM_APPLICATION_ID.into(),
-    };
-    let login_url = format!("{DEXCOM_BASE_URL}/{DEXCOM_LOGIN_ID_ENDPOINT}");
-    let session_json = post(
-        &mut client,
-        &login_url,
-        &(serde_json::to_string(&session_ctx).unwrap()),
-    )
-    .unwrap();
-    let session: String = serde_json::from_str(&session_json).unwrap();
+    let session = dexcom
+        .get_session(&user_id, app_config.dexcom_pass)
+        .unwrap();
     info!("session: {}", session);
-
-    let mut test_val = 0;
 
     // Monitor glucose
     loop {
-        let glucose_ctx = DexcomGlucose {
-            session_id: session.clone(),
-            minutes: 5,
-            max_count: 1,
-        };
-        let glucose_url = format!("{DEXCOM_BASE_URL}/{DEXCOM_GLUCOSE_READINGS_ENDPOINT}");
-        let glucose_json = post(
-            &mut client,
-            &glucose_url,
-            &(serde_json::to_string(&glucose_ctx).unwrap()),
-        )
-        .unwrap();
-        let glucose_readings: Vec<DexcomGlucoseReading> =
-            serde_json::from_str(&glucose_json).unwrap();
+        let glucose_readings = dexcom.get_glucose(&session, 5, 1).unwrap();
         for glucose in &glucose_readings {
             info!("glucose: {} and {}", glucose.Value, glucose.Trend);
         }
@@ -233,42 +137,4 @@ fn connect_wifi(
     info!("Wifi netif up");
 
     Ok(())
-}
-
-fn post(
-    client: &mut Client<EspHttpConnection>,
-    url: &str,
-    payload: &str,
-) -> anyhow::Result<String> {
-    let content_length_header = format!("{}", payload.len());
-    let headers = [
-        ("accept-encoding", "application/json"),
-        ("content-type", "application/json"),
-        ("content-length", &*content_length_header),
-    ];
-
-    let mut request = client.post(url, &headers)?;
-    request.write_all(payload.as_bytes())?;
-    request.flush()?;
-    info!("-> POST {}", url);
-    let mut response = request.submit()?;
-
-    let status = response.status();
-    info!("<- {}", status);
-    let mut buf = [0u8; 4096];
-    let bytes_read = io::try_read_full(&mut response, &mut buf).map_err(|e| e.0)?;
-    info!("Read {} bytes", bytes_read);
-    match std::str::from_utf8(&buf[0..bytes_read]) {
-        Ok(body_string) => {
-            info!(
-                "Response body (truncated to {} bytes): {:?}",
-                buf.len(),
-                body_string
-            );
-            return Ok(body_string.to_owned());
-        }
-        Err(e) => error!("Error decoding response body: {}", e),
-    };
-
-    Ok("".to_owned())
 }
