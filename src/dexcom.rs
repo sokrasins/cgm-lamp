@@ -41,13 +41,13 @@ pub mod dexcom {
     }
 
     #[derive(Deserialize, Serialize, Debug)]
-    //#[serde(rename_all = "camelCase")]
+    #[serde(rename_all = "lowercase")]
     pub struct DexcomGlucoseReading {
-        pub WT: String,
-        pub ST: String,
-        pub DT: String,
-        pub Value: isize,
-        pub Trend: String,
+        pub wt: String,
+        pub st: String,
+        pub dt: String,
+        pub value: isize,
+        pub trend: String,
     }
 
     pub struct Dexcom {
@@ -120,12 +120,19 @@ pub mod dexcom {
 
             let glucose_url = format!("{}/{}", BASE_URL, GLUCOSE_READINGS_ENDPOINT);
 
-            let glucose_json = Dexcom::post(
+            let mut glucose_json = Dexcom::post(
                 &mut self.client,
                 &glucose_url,
                 &(serde_json::to_string(&glucose_ctx).unwrap()),
             )
             .unwrap();
+
+            // Fix the json field names
+            glucose_json = glucose_json.replace("WT", "wt");
+            glucose_json = glucose_json.replace("ST", "st");
+            glucose_json = glucose_json.replace("DT", "dt");
+            glucose_json = glucose_json.replace("Value", "value");
+            glucose_json = glucose_json.replace("Trend", "trend");
 
             let glucose_readings: Vec<DexcomGlucoseReading> =
                 serde_json::from_str(&glucose_json).unwrap();

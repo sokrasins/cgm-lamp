@@ -10,7 +10,7 @@ use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
 
 use rgb_led::{RGB8, WS2812RMT};
 
-use cgmlamp::dexcom::dexcom::{Dexcom, DexcomGlucoseReading};
+use cgmlamp::dexcom::dexcom::Dexcom;
 
 #[toml_cfg::toml_config]
 pub struct Config {
@@ -70,11 +70,11 @@ fn main() -> anyhow::Result<()> {
     loop {
         let glucose_readings = dexcom.get_glucose(&session, 5, 1).unwrap();
         for glucose in &glucose_readings {
-            info!("glucose: {} and {}", glucose.Value, glucose.Trend);
+            info!("glucose: {} and {}", glucose.value, glucose.trend);
         }
 
         if glucose_readings.len() > 0 {
-            let last_value = glucose_readings[0].Value;
+            let last_value = glucose_readings[0].value;
 
             // Turn white for a bit just to signify a new sample
             let color = RGB8::new(128, 128, 128);
@@ -82,25 +82,26 @@ fn main() -> anyhow::Result<()> {
             FreeRtos::delay_ms(100);
 
             // Set color by glucose value
-            let color = match last_value {
-                0..55 => RGB8::new(255, 0, 0), // TODO: throb
-                55..250 => {
-                    let r =
-                        (255f64 - (255f64 * (last_value - 46) as f64) / ((235 - 46) as f64)) as u8;
-                    let g = 0;
-                    let b = ((255f64 * (last_value - 46) as f64) / ((235 - 46) as f64)) as u8;
-                    RGB8::new(r, g, b)
-                }
-                250..300 => RGB8::new(0, 0, 255),
-                300..500 => RGB8::new(0, 0, 255), // TODO: throb
-                _ => RGB8::new(128, 128, 128),    // TODO: throb
-            };
+            let color = glucose_to_color(last_value);
             ws2812.set_pixel(color)?;
         }
         FreeRtos::delay_ms(1000 * 20);
     }
+}
 
-    Ok(())
+fn glucose_to_color(value: isize) -> RGB8 {
+    match value {
+        0..55 => RGB8::new(255, 0, 0), // TODO: throb
+        55..250 => {
+            let r = (255f64 - (255f64 * (value - 46) as f64) / ((235 - 46) as f64)) as u8;
+            let g = 0;
+            let b = ((255f64 * (value - 46) as f64) / ((235 - 46) as f64)) as u8;
+            RGB8::new(r, g, b)
+        }
+        250..300 => RGB8::new(0, 0, 255),
+        300..500 => RGB8::new(0, 0, 255), // TODO: throb
+        _ => RGB8::new(128, 128, 128),    // TODO: throb
+    }
 }
 
 fn connect_wifi(
