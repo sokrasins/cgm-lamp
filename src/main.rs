@@ -1,30 +1,25 @@
-use log::{error, info};
 use core::convert::TryInto;
 use core::time::Duration;
+use log::{error, info};
 
 use embedded_svc::{
-    http::{client::Client},
-    io::{Write},
+    http::client::Client,
+    io::Write,
     utils::io,
     wifi::{AuthMethod, ClientConfiguration, Configuration},
 };
 
 use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
+use esp_idf_svc::http::client::{Configuration as HttpConfiguration, EspHttpConnection};
 use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
-use esp_idf_svc::http::client::{Configuration as HttpConfiguration, EspHttpConnection};
-
-use esp_idf_hal::{
-    gpio::OutputPin,
-    peripheral::Peripheral,
-    rmt::{config::TransmitConfig, FixedLengthSignal, PinState, Pulse, RmtChannel, TxRmtDriver},
-};
 
 use serde::{Deserialize, Serialize};
 use serde_json;
 
-use rgb::RGB8;
+//use rgb::RGB8;
+use rgb_led::{RGB8, WS2812RMT};
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,6 +96,8 @@ fn main() -> anyhow::Result<()> {
     let channel = peripherals.rmt.channel0;
     let mut ws2812 = WS2812RMT::new(led, channel)?;
 
+    ws2812.set_pixel(RGB8::new(0, 0, 0))?;
+
     let mut wifi = BlockingWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
         sys_loop,
@@ -125,7 +122,12 @@ fn main() -> anyhow::Result<()> {
         application_id: DEXCOM_APPLICATION_ID.into(),
     };
     let auth_url = format!("{DEXCOM_BASE_URL}/{DEXCOM_AUTHENTICATE_ENDPOINT}");
-    let user_id_json = post(&mut client, &auth_url, &(serde_json::to_string(&login_ctx).unwrap())).unwrap();
+    let user_id_json = post(
+        &mut client,
+        &auth_url,
+        &(serde_json::to_string(&login_ctx).unwrap()),
+    )
+    .unwrap();
     let user_id = serde_json::from_str(&user_id_json).unwrap();
     info!("user id: {}", user_id);
 
@@ -136,9 +138,16 @@ fn main() -> anyhow::Result<()> {
         application_id: DEXCOM_APPLICATION_ID.into(),
     };
     let login_url = format!("{DEXCOM_BASE_URL}/{DEXCOM_LOGIN_ID_ENDPOINT}");
-    let session_json = post(&mut client, &login_url, &(serde_json::to_string(&session_ctx).unwrap())).unwrap();
+    let session_json = post(
+        &mut client,
+        &login_url,
+        &(serde_json::to_string(&session_ctx).unwrap()),
+    )
+    .unwrap();
     let session: String = serde_json::from_str(&session_json).unwrap();
     info!("session: {}", session);
+
+    let mut test_val = 0;
 
     // Monitor glucose
     loop {
@@ -148,8 +157,14 @@ fn main() -> anyhow::Result<()> {
             max_count: 1,
         };
         let glucose_url = format!("{DEXCOM_BASE_URL}/{DEXCOM_GLUCOSE_READINGS_ENDPOINT}");
-        let glucose_json = post(&mut client, &glucose_url, &(serde_json::to_string(&glucose_ctx).unwrap())).unwrap();
-        let glucose_readings: Vec<DexcomGlucoseReading> = serde_json::from_str(&glucose_json).unwrap();
+        let glucose_json = post(
+            &mut client,
+            &glucose_url,
+            &(serde_json::to_string(&glucose_ctx).unwrap()),
+        )
+        .unwrap();
+        let glucose_readings: Vec<DexcomGlucoseReading> =
+            serde_json::from_str(&glucose_json).unwrap();
         for glucose in &glucose_readings {
             info!("glucose: {} and {}", glucose.Value, glucose.Trend);
         }
@@ -158,16 +173,23 @@ fn main() -> anyhow::Result<()> {
             let last_value = glucose_readings[0].Value;
 
             // Turn white for a bit just to signify a new sample
-            let color = RGB8::new(128, 128, 128); 
+            let color = RGB8::new(128, 128, 128);
             ws2812.set_pixel(color)?;
             FreeRtos::delay_ms(100);
 
             // Set color by glucose value
             let color = match last_value {
-                0..100 => RGB8::new(255, 0, 0),
-                100..200 => RGB8::new(0, 255, 0),
-                200..300 => RGB8::new(0, 0, 255),
-                _ => RGB8::new(128, 128, 0),
+                0..55 => RGB8::new(255, 0, 0), // TODO: throb
+                55..250 => {
+                    let r =
+                        (255f64 - (255f64 * (last_value - 46) as f64) / ((235 - 46) as f64)) as u8;
+                    let g = 0;
+                    let b = ((255f64 * (last_value - 46) as f64) / ((235 - 46) as f64)) as u8;
+                    RGB8::new(r, g, b)
+                }
+                250..300 => RGB8::new(0, 0, 255),
+                300..500 => RGB8::new(0, 0, 255), // TODO: throb
+                _ => RGB8::new(128, 128, 128),    // TODO: throb
             };
             ws2812.set_pixel(color)?;
         }
@@ -177,8 +199,11 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>, ssid: &str, pass: &str) -> anyhow::Result<()> {
-
+fn connect_wifi(
+    wifi: &mut BlockingWifi<EspWifi<'static>>,
+    ssid: &str,
+    pass: &str,
+) -> anyhow::Result<()> {
     let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
         ssid: ssid.try_into().unwrap(),
         bssid: None,
@@ -187,7 +212,6 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>, ssid: &str, pass: &st
         channel: None,
         ..Default::default()
     });
-
 
     wifi.set_configuration(&wifi_configuration)?;
 
@@ -211,7 +235,11 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>, ssid: &str, pass: &st
     Ok(())
 }
 
-fn post(client: &mut Client<EspHttpConnection>, url: &str, payload: &str) -> anyhow::Result<String> {
+fn post(
+    client: &mut Client<EspHttpConnection>,
+    url: &str,
+    payload: &str,
+) -> anyhow::Result<String> {
     let content_length_header = format!("{}", payload.len());
     let headers = [
         ("accept-encoding", "application/json"),
@@ -237,52 +265,10 @@ fn post(client: &mut Client<EspHttpConnection>, url: &str, payload: &str) -> any
                 buf.len(),
                 body_string
             );
-            return Ok(body_string.to_owned())
-        },
+            return Ok(body_string.to_owned());
+        }
         Err(e) => error!("Error decoding response body: {}", e),
     };
 
     Ok("".to_owned())
-}
-
-
-
-
-pub struct WS2812RMT<'a> {
-    tx_rtm_driver: TxRmtDriver<'a>,
-}
-
-impl<'d> WS2812RMT<'d> {
-    // Rust ESP Board gpio2,  ESP32-C3-DevKitC-02 gpio8
-    pub fn new(
-        led: impl Peripheral<P = impl OutputPin> + 'd,
-        channel: impl Peripheral<P = impl RmtChannel> + 'd,
-    ) -> anyhow::Result<Self> {
-        let config = TransmitConfig::new().clock_divider(2);
-        let tx = TxRmtDriver::new(channel, led, &config)?;
-        Ok(Self { tx_rtm_driver: tx })
-    }
-
-    pub fn set_pixel(&mut self, rgb: RGB8) -> anyhow::Result<()> {
-        let color: u32 = ((rgb.g as u32) << 16) | ((rgb.r as u32) << 8) | rgb.b as u32;
-        let ticks_hz = self.tx_rtm_driver.counter_clock()?;
-        let t0h = Pulse::new_with_duration(ticks_hz, PinState::High, &ns(350))?;
-        let t0l = Pulse::new_with_duration(ticks_hz, PinState::Low, &ns(800))?;
-        let t1h = Pulse::new_with_duration(ticks_hz, PinState::High, &ns(700))?;
-        let t1l = Pulse::new_with_duration(ticks_hz, PinState::Low, &ns(600))?;
-        let mut signal = FixedLengthSignal::<24>::new();
-        for i in (0..24).rev() {
-            let p = 2_u32.pow(i);
-            let bit = p & color != 0;
-            let (high_pulse, low_pulse) = if bit { (t1h, t1l) } else { (t0h, t0l) };
-            signal.set(23 - i as usize, &(high_pulse, low_pulse))?;
-        }
-        self.tx_rtm_driver.start_blocking(&signal)?;
-
-        Ok(())
-    }
-}
-
-fn ns(nanos: u64) -> Duration {
-    Duration::from_nanos(nanos)
 }
