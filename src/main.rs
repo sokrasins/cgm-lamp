@@ -183,7 +183,8 @@ fn get_color_in_sweep(start_color: &RGB8, end_color: &RGB8, total: usize, idx: i
 }
 
 fn glucose_to_ledstate(value: isize) -> LedState {
-    // Red -> Purple -> Blue colormap
+    // Two-color colormap
+    // Red -> Blue
     /*match value {
         0..55 => LedState::Breathe(RED),
         55..250 => LedState::Steady(get_color_in_sweep(&RED, &BLUE, 250 - 55, value - 55)),
@@ -193,6 +194,7 @@ fn glucose_to_ledstate(value: isize) -> LedState {
     }*/
 
     // Multi-colored colormap
+    // Red -> Green -> Blue -> Purple
     match value {
         0..55 => LedState::Breathe(RED),
         55..152 => LedState::Steady(get_color_in_sweep(&RED, &GREEN, 152 - 55, value - 55)),
