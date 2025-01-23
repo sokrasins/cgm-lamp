@@ -42,12 +42,60 @@ pub mod dexcom {
 
     #[derive(Deserialize, Serialize, Debug)]
     #[serde(rename_all = "lowercase")]
-    pub struct DexcomGlucoseReading {
+    struct DexcomGlucoseReading {
         pub wt: String,
         pub st: String,
         pub dt: String,
         pub value: isize,
         pub trend: String,
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    pub enum GlucoseTrend {
+        NoTrend,
+        DoubleUp,
+        SingleUp,
+        FortyFiveUp,
+        Flat,
+        FortyFiveDown,
+        SingleDown,
+        DoubleDown,
+        NotComputable,
+        RateOutOfRange,
+    }
+
+    impl GlucoseTrend {
+        pub fn from_str(trend: &str) -> Self {
+            match trend {
+                "DoubleUp" => Self::DoubleUp,
+                "SingleUp" => Self::SingleUp,
+                "FortyFiveUp" => Self::FortyFiveUp,
+                "Flat" => Self::Flat,
+                "FortyFiveDown" => Self::FortyFiveDown,
+                "SingleDown" => Self::SingleDown,
+                "DoubleDown" => Self::DoubleDown,
+                "NotComputable" => Self::NotComputable,
+                "RateOutOfRange" => Self::RateOutOfRange,
+                _ => Self::NoTrend,
+            }
+        }
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    pub struct GlucoseReading {
+        pub time: i64,
+        pub value: isize,
+        pub trend: GlucoseTrend,
+    }
+
+    impl GlucoseReading {
+        pub fn new() -> Self {
+            Self {
+                time: 0,
+                value: 0,
+                trend: GlucoseTrend::NoTrend,
+            }
+        }
     }
 
     pub struct Dexcom {
@@ -111,7 +159,7 @@ pub mod dexcom {
             session: &str,
             minutes: isize,
             max_count: isize,
-        ) -> anyhow::Result<Vec<DexcomGlucoseReading>> {
+        ) -> anyhow::Result<Vec<GlucoseReading>> {
             let glucose_ctx = DexcomGlucose {
                 session_id: session.to_string(),
                 minutes,
@@ -137,7 +185,16 @@ pub mod dexcom {
             let glucose_readings: Vec<DexcomGlucoseReading> =
                 serde_json::from_str(&glucose_json).unwrap();
 
-            Ok(glucose_readings)
+            Ok(glucose_readings.into_iter().map(|reading| {
+                let start_bytes = reading.wt.find("(").unwrap_or(0) + 1;
+                let end_bytes = reading.wt.find(")").unwrap_or(reading.wt.len());
+                let time: i64 = reading.wt[start_bytes..end_bytes].to_string().parse().unwrap(); //parse::<isize>().unwrap();
+                GlucoseReading{
+                    time, // TODO: wt, st, or dt?
+                    value: reading.value,
+                    trend: GlucoseTrend::from_str(&reading.trend),
+                }
+            }).collect())
         }
 
         fn post(
@@ -179,3 +236,4 @@ pub mod dexcom {
         }
     }
 }
+
