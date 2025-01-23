@@ -60,6 +60,22 @@ const WHITE: RGB8 = RGB8 {
     b: BRIGHTNESS,
 };
 
+const GREEN: RGB8 = RGB8 {
+    r: 0,
+    g: BRIGHTNESS,
+    b: 0,
+};
+
+const PURPLE: RGB8 = RGB8 {
+    r: BRIGHTNESS,
+    g: 0,
+    b: BRIGHTNESS,
+};
+
+// red -> green
+// green -> blue
+// blue -> purple
+
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -139,6 +155,7 @@ fn main() -> anyhow::Result<()> {
         // Get new reading
         if let Ok(measurement) = dexcom.get_latest_glucose(&session) {
             info!("{:?}", measurement);
+
             let color = glucose_to_ledstate(measurement.value);
             let mut led = lock.lock().unwrap();
             *led = color;
@@ -166,12 +183,23 @@ fn get_color_in_sweep(start_color: &RGB8, end_color: &RGB8, total: usize, idx: i
 }
 
 fn glucose_to_ledstate(value: isize) -> LedState {
-    match value {
+    // Red -> Purple -> Blue colormap
+    /*match value {
         0..55 => LedState::Breathe(RED),
         55..250 => LedState::Steady(get_color_in_sweep(&RED, &BLUE, 250 - 55, value - 55)),
         250..300 => LedState::Steady(BLUE),
         300..500 => LedState::Breathe(BLUE),
         _ => LedState::Breathe(YELLOW),
+    }*/
+
+    // Multi-colored colormap
+    match value {
+        0..55 => LedState::Breathe(RED),
+        55..152 => LedState::Steady(get_color_in_sweep(&RED, &GREEN, 152 - 55, value - 55)),
+        152..250 => LedState::Steady(get_color_in_sweep(&GREEN, &BLUE, 250 - 152, value - 152)),
+        250..300 => LedState::Steady(get_color_in_sweep(&BLUE, &PURPLE, 300 - 250, value - 250)),
+        300..500 => LedState::Breathe(PURPLE),
+        _ => LedState::Breathe(WHITE),
     }
 }
 
