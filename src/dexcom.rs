@@ -154,6 +154,19 @@ pub mod dexcom {
             Ok(serde_json::from_str(&session_json).unwrap())
         }
 
+        pub fn get_latest_glucose(&mut self, session: &str) -> anyhow::Result<GlucoseReading> {
+            match self.get_glucose(session, 5, 1) {
+                Ok(vec) => {
+                    if vec.len() > 0 {
+                        return Ok(vec[0]);
+                    } else {
+                        return Err(anyhow::anyhow!("No measurement"));
+                    }
+                }
+                Err(error) => Err(error),
+            }
+        }
+
         pub fn get_glucose(
             &mut self,
             session: &str,
@@ -185,16 +198,22 @@ pub mod dexcom {
             let glucose_readings: Vec<DexcomGlucoseReading> =
                 serde_json::from_str(&glucose_json).unwrap();
 
-            Ok(glucose_readings.into_iter().map(|reading| {
-                let start_bytes = reading.wt.find("(").unwrap_or(0) + 1;
-                let end_bytes = reading.wt.find(")").unwrap_or(reading.wt.len());
-                let time: i64 = reading.wt[start_bytes..end_bytes].to_string().parse().unwrap(); //parse::<isize>().unwrap();
-                GlucoseReading{
-                    time, // TODO: wt, st, or dt?
-                    value: reading.value,
-                    trend: GlucoseTrend::from_str(&reading.trend),
-                }
-            }).collect())
+            Ok(glucose_readings
+                .into_iter()
+                .map(|reading| {
+                    let start_bytes = reading.wt.find("(").unwrap_or(0) + 1;
+                    let end_bytes = reading.wt.find(")").unwrap_or(reading.wt.len());
+                    let time: i64 = reading.wt[start_bytes..end_bytes]
+                        .to_string()
+                        .parse()
+                        .unwrap(); //parse::<isize>().unwrap();
+                    GlucoseReading {
+                        time, // TODO: wt, st, or dt?
+                        value: reading.value,
+                        trend: GlucoseTrend::from_str(&reading.trend),
+                    }
+                })
+                .collect())
         }
 
         fn post(
@@ -236,4 +255,3 @@ pub mod dexcom {
         }
     }
 }
-

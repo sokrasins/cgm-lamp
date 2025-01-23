@@ -9,14 +9,13 @@ use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
 
 use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
 use esp_idf_svc::log::EspLogger;
+use esp_idf_svc::timer::EspTaskTimerService;
 use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
-use esp_idf_svc::timer::EspTaskTimerService;
 
 use rgb_led::{RGB8, WS2812RMT};
 
 use cgmlamp::dexcom::dexcom::Dexcom;
-use cgmlamp::dexcom::dexcom::GlucoseReading;
 
 #[toml_cfg::toml_config]
 pub struct Config {
@@ -30,10 +29,36 @@ pub struct Config {
     dexcom_pass: &'static str,
 }
 
+#[allow(dead_code)]
 enum LedState {
     Steady(RGB8),
     Breathe(RGB8),
+    Off,
 }
+
+const BRIGHTNESS: u8 = 255;
+
+const RED: RGB8 = RGB8 {
+    r: BRIGHTNESS,
+    g: 0,
+    b: 0,
+};
+const BLUE: RGB8 = RGB8 {
+    r: 0,
+    g: 0,
+    b: BRIGHTNESS,
+};
+const YELLOW: RGB8 = RGB8 {
+    r: BRIGHTNESS,
+    g: BRIGHTNESS,
+    b: 0,
+};
+const BLACK: RGB8 = RGB8 { r: 0, g: 0, b: 0 };
+const WHITE: RGB8 = RGB8 {
+    r: BRIGHTNESS,
+    g: BRIGHTNESS,
+    b: BRIGHTNESS,
+};
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -52,8 +77,7 @@ fn main() -> anyhow::Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
 
     // Shared state between LED-writing thread and main thread
-    let lock = Arc::new(Mutex::new(GlucoseReading::new()));
-    let led_lock = Arc::new(Mutex::new(LedState::Breathe(RGB8::new(128, 128, 128))));
+    let lock = Arc::new(Mutex::new(LedState::Breathe(WHITE)));
 
     // LED-writing thread
     let timer_service = EspTaskTimerService::new()?;
@@ -63,26 +87,30 @@ fn main() -> anyhow::Result<()> {
         let channel = peripherals.rmt.channel0;
         let mut ws2812 = WS2812RMT::new(led, channel)?;
         let lock = Arc::clone(&lock);
-        let led_lock = Arc::clone(&led_lock);
 
         timer_service.timer(move || {
-            // TODO: State machine here
-            // Quick LED flicker to show new value
-            //let color = RGB8::new(128, 128, 128);
-            //ws2812.set_pixel(color).unwrap();
-            //FreeRtos::delay_ms(100);
-
-            // Set color by glucose value
-            //let measurement = lock.lock().unwrap();
-            let led = led_lock.lock().unwrap();
+            let led = lock.lock().unwrap();
             match *led {
                 LedState::Steady(color) => ws2812.set_pixel(color).unwrap(),
-                LedState::Breathe(color) => ws2812.set_pixel(color).unwrap(),
+                LedState::Breathe(color) => {
+                    for i in 0..80 {
+                        ws2812
+                            .set_pixel(get_color_in_sweep(&color, &BLACK, 80, i))
+                            .unwrap();
+                        FreeRtos::delay_ms(10);
+                    }
+                    for i in 0..80 {
+                        ws2812
+                            .set_pixel(get_color_in_sweep(&BLACK, &color, 80, i))
+                            .unwrap();
+                        FreeRtos::delay_ms(10);
+                    }
+                }
+                LedState::Off => ws2812.set_pixel(BLACK).unwrap(),
             };
-            FreeRtos::delay_ms(900);
         })?
     };
-    callback_timer.every(Duration::from_secs(1))?;
+    callback_timer.every(Duration::from_secs(2))?;
 
     // Set up wifi, connect to AP
     let mut wifi = BlockingWifi::wrap(
@@ -96,25 +124,28 @@ fn main() -> anyhow::Result<()> {
     let user_id = dexcom
         .get_user_id(app_config.dexcom_user, app_config.dexcom_pass)
         .unwrap();
-    info!("user id: {}", user_id);
 
     // Login
     let session = dexcom
         .get_session(&user_id, app_config.dexcom_pass)
         .unwrap();
-    info!("session: {}", session);
 
     // Monitor glucose
+    let mut no_measurement_count = 0;
     loop {
-        // Get new reading 
-        let readings = dexcom.get_glucose(&session, 5, 1).unwrap();
-        if readings.len() > 0 {
-            //let mut measurement = lock.lock().unwrap();
-            let measurement = readings[0];
+        // Update last
+        no_measurement_count += 1;
+
+        // Get new reading
+        if let Ok(measurement) = dexcom.get_latest_glucose(&session) {
             info!("{:?}", measurement);
             let color = glucose_to_ledstate(measurement.value);
-            let mut led = led_lock.lock().unwrap();
+            let mut led = lock.lock().unwrap();
             *led = color;
+            no_measurement_count = 0;
+        } else if no_measurement_count >= 600 {
+            let mut led = lock.lock().unwrap();
+            *led = LedState::Breathe(YELLOW);
         }
 
         // Do it once every 20 sec. Any slower and the modem will go to sleep.
@@ -122,18 +153,25 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+fn get_color_in_sweep(start_color: &RGB8, end_color: &RGB8, total: usize, idx: isize) -> RGB8 {
+    let r_step = (end_color.r as f64 - start_color.r as f64) / (total as f64);
+    let g_step = (end_color.g as f64 - start_color.g as f64) / (total as f64);
+    let b_step = (end_color.b as f64 - start_color.b as f64) / (total as f64);
+
+    RGB8::new(
+        ((start_color.r as f64) + (idx as f64 * r_step)) as u8,
+        ((start_color.g as f64) + (idx as f64 * g_step)) as u8,
+        ((start_color.b as f64) + (idx as f64 * b_step)) as u8,
+    )
+}
+
 fn glucose_to_ledstate(value: isize) -> LedState {
     match value {
-        0..55 => LedState::Breathe(RGB8::new(255, 0, 0)),
-        55..250 => {
-            let r = (255f64 - (255f64 * (value - 46) as f64) / ((235 - 46) as f64)) as u8;
-            let g = 0;
-            let b = ((255f64 * (value - 46) as f64) / ((235 - 46) as f64)) as u8;
-            LedState::Steady(RGB8::new(r, g, b))
-        }
-        250..300 => LedState::Steady(RGB8::new(0, 0, 255)),
-        300..500 => LedState::Breathe(RGB8::new(0, 0, 255)),
-        _ => LedState::Breathe(RGB8::new(128, 128, 128)),
+        0..55 => LedState::Breathe(RED),
+        55..250 => LedState::Steady(get_color_in_sweep(&RED, &BLUE, 250 - 55, value - 55)),
+        250..300 => LedState::Steady(BLUE),
+        300..500 => LedState::Breathe(BLUE),
+        _ => LedState::Breathe(YELLOW),
     }
 }
 
