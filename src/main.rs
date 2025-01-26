@@ -43,7 +43,7 @@ enum AppState {
     DisplayGlucose,
 }
 
-const BRIGHTNESS: u8 = 255;
+const BRIGHTNESS: u8 = 128;
 
 const RED: RGB8 = RGB8 {
     r: BRIGHTNESS,
@@ -99,10 +99,19 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
 
+    // Application state
+
     // Shared state between LED-writing thread and main thread
     let lock = Arc::new(Mutex::new(LedState::Off));
 
+    // App state
     let mut app_state = AppState::Boot;
+
+    // Create dexcom object
+    let mut dexcom = Dexcom::new();
+
+    // Monitor glucose
+    let mut no_measurement_count = 0;
 
     // LED-writing thread
     let timer_service = EspTaskTimerService::new()?;
@@ -139,23 +148,10 @@ fn main() -> anyhow::Result<()> {
 
     let mut wifi = BlockingWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
-            sys_loop,
-    )?;
-
-
-    // Set up wifi, connect to AP
-    /*let mut wifi = BlockingWifi::wrap(
-        EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
         sys_loop,
     )?;
-    connect_wifi(&mut wifi, app_config.wifi_ssid, app_config.wifi_pass)?;
-    */
-    // Get user id
-    let mut dexcom = Dexcom::new();
-        // Monitor glucose
-    let mut no_measurement_count = 0;
-    loop {
 
+    loop {
         match app_state {
             AppState::Boot => {
                 // Update presentation
@@ -164,48 +160,47 @@ fn main() -> anyhow::Result<()> {
 
                 // Advance to next state
                 app_state = AppState::ConnectWifi;
-            },
+            }
             AppState::ConnectWifi => {
                 // Set up wifi, connect to AP
-                                connect_wifi(&mut wifi, app_config.wifi_ssid, app_config.wifi_pass)?;
+                connect_wifi(&mut wifi, app_config.wifi_ssid, app_config.wifi_pass)?;
 
                 // Advance to next state
                 app_state = AppState::GetSession;
-            },
+            }
             AppState::GetSession => {
-                dexcom.connect(app_config.dexcom_user, app_config.dexcom_pass).unwrap();
-                /*let user_id = dexcom
-                    .get_user_id(app_config.dexcom_user, app_config.dexcom_pass)
+                dexcom
+                    .connect(app_config.dexcom_user, app_config.dexcom_pass)
                     .unwrap();
 
-                // Login
-                let session = dexcom
-                    .get_session(&user_id, app_config.dexcom_pass)
-                    .unwrap();*/
-
                 app_state = AppState::DisplayGlucose;
-            },
+            }
             AppState::DisplayGlucose => {
                 // Update last
                 no_measurement_count += 1;
 
-                // Get new reading
-                if let Ok(measurement) = dexcom.get_latest_glucose() {
-                    info!("{:?}", measurement);
+                // Are we still connected to wifi? If not, sending a request will crash the program
+                if !wifi.is_connected().unwrap() {
+                    info!("Not connected to wifi, reconnecting");
+                    app_state = AppState::ConnectWifi;
+                } else {
+                    // Get new reading
+                    if let Ok(measurement) = dexcom.get_latest_glucose() {
+                        info!("{:?}", measurement);
 
-                    let color = glucose_to_ledstate(measurement.value);
-                    let mut led = lock.lock().unwrap();
-                    *led = color;
-                    no_measurement_count = 0;
-                } else if no_measurement_count >= 600 {
-                    let mut led = lock.lock().unwrap();
-                    *led = LedState::Breathe(YELLOW);
+                        let color = glucose_to_ledstate(measurement.value);
+                        let mut led = lock.lock().unwrap();
+                        *led = color;
+                        no_measurement_count = 0;
+                    } else if no_measurement_count >= 600 {
+                        let mut led = lock.lock().unwrap();
+                        *led = LedState::Breathe(YELLOW);
+                    }
+
+                    // Do it once every 20 sec. Any slower and the modem will go to sleep.
+                    FreeRtos::delay_ms(1000 * 20);
                 }
-
-                // Do it once every 20 sec. Any slower and the modem will go to sleep.
-                FreeRtos::delay_ms(1000 * 20);
-
-            },
+            }
         };
     }
 }
