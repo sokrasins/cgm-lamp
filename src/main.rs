@@ -36,6 +36,13 @@ enum LedState {
     Off,
 }
 
+enum AppState {
+    Boot,
+    ConnectWifi,
+    GetSession,
+    DisplayGlucose,
+}
+
 const BRIGHTNESS: u8 = 255;
 
 const RED: RGB8 = RGB8 {
@@ -93,7 +100,9 @@ fn main() -> anyhow::Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
 
     // Shared state between LED-writing thread and main thread
-    let lock = Arc::new(Mutex::new(LedState::Breathe(WHITE)));
+    let lock = Arc::new(Mutex::new(LedState::Off));
+
+    let mut app_state = AppState::Boot;
 
     // LED-writing thread
     let timer_service = EspTaskTimerService::new()?;
@@ -128,45 +137,76 @@ fn main() -> anyhow::Result<()> {
     };
     callback_timer.every(Duration::from_secs(2))?;
 
-    // Set up wifi, connect to AP
     let mut wifi = BlockingWifi::wrap(
+        EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
+            sys_loop,
+    )?;
+
+
+    // Set up wifi, connect to AP
+    /*let mut wifi = BlockingWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
         sys_loop,
     )?;
     connect_wifi(&mut wifi, app_config.wifi_ssid, app_config.wifi_pass)?;
-
+    */
     // Get user id
     let mut dexcom = Dexcom::new();
-    let user_id = dexcom
-        .get_user_id(app_config.dexcom_user, app_config.dexcom_pass)
-        .unwrap();
-
-    // Login
-    let session = dexcom
-        .get_session(&user_id, app_config.dexcom_pass)
-        .unwrap();
-
-    // Monitor glucose
+        // Monitor glucose
     let mut no_measurement_count = 0;
     loop {
-        // Update last
-        no_measurement_count += 1;
 
-        // Get new reading
-        if let Ok(measurement) = dexcom.get_latest_glucose(&session) {
-            info!("{:?}", measurement);
+        match app_state {
+            AppState::Boot => {
+                // Update presentation
+                let mut led = lock.lock().unwrap();
+                *led = LedState::Breathe(WHITE);
 
-            let color = glucose_to_ledstate(measurement.value);
-            let mut led = lock.lock().unwrap();
-            *led = color;
-            no_measurement_count = 0;
-        } else if no_measurement_count >= 600 {
-            let mut led = lock.lock().unwrap();
-            *led = LedState::Breathe(YELLOW);
-        }
+                // Advance to next state
+                app_state = AppState::ConnectWifi;
+            },
+            AppState::ConnectWifi => {
+                // Set up wifi, connect to AP
+                                connect_wifi(&mut wifi, app_config.wifi_ssid, app_config.wifi_pass)?;
 
-        // Do it once every 20 sec. Any slower and the modem will go to sleep.
-        FreeRtos::delay_ms(1000 * 20);
+                // Advance to next state
+                app_state = AppState::GetSession;
+            },
+            AppState::GetSession => {
+                dexcom.connect(app_config.dexcom_user, app_config.dexcom_pass).unwrap();
+                /*let user_id = dexcom
+                    .get_user_id(app_config.dexcom_user, app_config.dexcom_pass)
+                    .unwrap();
+
+                // Login
+                let session = dexcom
+                    .get_session(&user_id, app_config.dexcom_pass)
+                    .unwrap();*/
+
+                app_state = AppState::DisplayGlucose;
+            },
+            AppState::DisplayGlucose => {
+                // Update last
+                no_measurement_count += 1;
+
+                // Get new reading
+                if let Ok(measurement) = dexcom.get_latest_glucose() {
+                    info!("{:?}", measurement);
+
+                    let color = glucose_to_ledstate(measurement.value);
+                    let mut led = lock.lock().unwrap();
+                    *led = color;
+                    no_measurement_count = 0;
+                } else if no_measurement_count >= 600 {
+                    let mut led = lock.lock().unwrap();
+                    *led = LedState::Breathe(YELLOW);
+                }
+
+                // Do it once every 20 sec. Any slower and the modem will go to sleep.
+                FreeRtos::delay_ms(1000 * 20);
+
+            },
+        };
     }
 }
 
@@ -183,16 +223,6 @@ fn get_color_in_sweep(start_color: &RGB8, end_color: &RGB8, total: usize, idx: i
 }
 
 fn glucose_to_ledstate(value: isize) -> LedState {
-    // Two-color colormap
-    // Red -> Blue
-    /*match value {
-        0..55 => LedState::Breathe(RED),
-        55..250 => LedState::Steady(get_color_in_sweep(&RED, &BLUE, 250 - 55, value - 55)),
-        250..300 => LedState::Steady(BLUE),
-        300..500 => LedState::Breathe(BLUE),
-        _ => LedState::Breathe(YELLOW),
-    }*/
-
     // Multi-colored colormap
     // Red -> Green -> Blue -> Purple
     match value {

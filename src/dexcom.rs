@@ -100,6 +100,8 @@ pub mod dexcom {
 
     pub struct Dexcom {
         client: Client<EspHttpConnection>,
+        user_id: String,
+        session: String,
     }
 
     impl Dexcom {
@@ -113,10 +115,20 @@ pub mod dexcom {
 
             let client = Client::wrap(connection);
 
-            Dexcom { client }
+            Dexcom { 
+                client,
+                user_id: "".to_string(),
+                session: "".to_string(),
+            }
         }
 
-        pub fn get_user_id(&mut self, acct_name: &str, pass: &str) -> anyhow::Result<String> {
+        pub fn connect(&mut self, acct_name: &str, pass: &str) -> anyhow::Result<()> {
+            self.user_id = self.get_user_id(acct_name, pass).unwrap();
+            self.session = self.get_session(pass).unwrap();
+            Ok(())
+        }
+
+        fn get_user_id(&mut self, acct_name: &str, pass: &str) -> anyhow::Result<String> {
             let login_ctx = DexcomLogin {
                 account_name: acct_name.to_string(),
                 password: pass.to_string(),
@@ -135,9 +147,9 @@ pub mod dexcom {
             Ok(serde_json::from_str(&user_id_json).unwrap())
         }
 
-        pub fn get_session(&mut self, user_id: &str, pass: &str) -> anyhow::Result<String> {
+        fn get_session(&mut self, pass: &str) -> anyhow::Result<String> {
             let session_ctx = DexcomSession {
-                account_id: user_id.to_string(),
+                account_id: self.user_id.to_string(),
                 password: pass.to_string(),
                 application_id: APPLICATION_ID.into(),
             };
@@ -154,8 +166,8 @@ pub mod dexcom {
             Ok(serde_json::from_str(&session_json).unwrap())
         }
 
-        pub fn get_latest_glucose(&mut self, session: &str) -> anyhow::Result<GlucoseReading> {
-            match self.get_glucose(session, 5, 1) {
+        pub fn get_latest_glucose(&mut self) -> anyhow::Result<GlucoseReading> {
+            match self.get_glucose(5, 1) {
                 Ok(vec) => {
                     if vec.len() > 0 {
                         return Ok(vec[0]);
@@ -169,12 +181,11 @@ pub mod dexcom {
 
         pub fn get_glucose(
             &mut self,
-            session: &str,
             minutes: isize,
             max_count: isize,
         ) -> anyhow::Result<Vec<GlucoseReading>> {
             let glucose_ctx = DexcomGlucose {
-                session_id: session.to_string(),
+                session_id: self.session.to_string(),
                 minutes,
                 max_count,
             };
