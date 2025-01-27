@@ -132,5 +132,8 @@ pub mod lamp {
             let mut state = self.state.lock().unwrap();
             *state = color;
         }
+
+        // TODO: changeable brightness
+        pub fn set_brightness(&mut self, brightness: usize) {}
     }
 }

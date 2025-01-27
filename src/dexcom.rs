@@ -115,7 +115,7 @@ pub mod dexcom {
 
             let client = Client::wrap(connection);
 
-            Dexcom { 
+            Dexcom {
                 client,
                 user_id: "".to_string(),
                 session: "".to_string(),
