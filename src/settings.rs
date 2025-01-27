@@ -1,7 +1,10 @@
 pub mod settings {
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize)]
     pub struct AppSettings {
-        wifi_ssid: Option<String>,
-        wifi_pass: Option<String>,
+        ap_ssid: Option<String>,
+        ap_pass: Option<String>,
         dexcom_user: Option<String>,
         dexcom_pass: Option<String>,
         lamp_brightness: Option<usize>,
@@ -10,8 +13,8 @@ pub mod settings {
     impl AppSettings {
         pub fn new() -> Self {
             AppSettings {
-                wifi_ssid: None,
-                wifi_pass: None,
+                ap_ssid: None,
+                ap_pass: None,
                 dexcom_user: None,
                 dexcom_pass: None,
                 lamp_brightness: None,
@@ -32,12 +35,12 @@ pub mod settings {
             let mut changed = false;
             // Check for settings parameters in delta, and take in the new
             // settings that exist
-            if let Some(wifi_ssid) = &delta.wifi_ssid {
-                self.wifi_ssid = Some(wifi_ssid.to_owned());
+            if let Some(ap_ssid) = &delta.ap_ssid {
+                self.ap_ssid = Some(ap_ssid.to_owned());
                 changed = true;
             }
-            if let Some(wifi_pass) = &delta.wifi_pass {
-                self.wifi_pass = Some(wifi_pass.to_owned());
+            if let Some(ap_pass) = &delta.ap_pass {
+                self.ap_pass = Some(ap_pass.to_owned());
                 changed = true;
             }
             if let Some(dexcom_user) = &delta.dexcom_user {

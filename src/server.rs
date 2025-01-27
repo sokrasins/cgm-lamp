@@ -5,7 +5,7 @@ pub mod server {
     };
     use log::info;
     use esp_idf_svc::http::server::EspHttpServer;
-    use serde::Deserialize;
+    use crate::settings::settings::AppSettings;
 
     static INDEX_HTML: &str = include_str!("index.html");
 
@@ -15,11 +15,14 @@ pub mod server {
     // Max payload length
     const MAX_LEN: usize = 128;
 
-    #[derive(Deserialize)]
-    struct FormData<'a> {
-        wifi_name: &'a str,
-        wifi_pass: &'a str,
-    }
+    /*#[derive(Debug, Deserialize)]
+    pub struct AppDelta<'a> {
+        ap_ssid: Option<&'a str>,
+        ap_pass: Option<&'a str>,
+        dexcom_user: Option<&'a str>,
+        dexcom_pass: Option<&'a str>,
+        lamp_brightness: Option<usize>,
+    }*/
 
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
@@ -60,12 +63,15 @@ pub mod server {
                     req.read_exact(&mut buf)?;
                     let mut resp = req.into_ok_response()?;
 
-                    if let Ok(form) = serde_json::from_slice::<FormData>(&buf) {
+                    info!("buf: {:?}", buf);
+
+                    //let settings = serde_json::from_slice::<AppDelta>(&buf).unwrap();
+                    if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
                         write!(
                             resp,
                             "New settings applied"
                         )?; 
-                        info!("Got new wifi creds - SSID: {} pass: {}", form.wifi_name, form.wifi_pass);
+                        info!("Got new settings: {:?}", form);
                     } else {
                         resp.write_all("JSON error".as_bytes())?;
                     }
