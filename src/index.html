@@ -10,6 +10,9 @@ body {
 	margin: auto;
 	padding: 1em;
 	font: 1em/1.65 sans-serif;
+  background-color: color-mix(in srgb, Canvas, CanvasText 2.5%);
+  color: color-mix(in srgb, CanvasText, Canvas 15%);
+  color-scheme: light dark;
 }
 input {
     width: 100%;
@@ -19,19 +22,32 @@ input {
 </style>
 </head>
 <body>
-<h1>CGM Lamp Configuration Panel</h1><br>
-<h2>Wifi Credentials</h2><br>
-<form id="wifi-cred" action="/post" method="post" accept-charset="utf-8">
+<h1>CGM Lamp Configuration Panel</h1>
+To change the configuration for you lamp, enter the changes here and click "submit"<br>
+
+<h2>Wifi Credentials</h2>
+<form id="app-settings" action="/post" method="post" accept-charset="utf-8">
 <label for="wifi-name">Wifi Name:</label>
 <input type="text" id="wifi-name" name="wifi_name" placeholder="Enter wifi name"><br>
 <label for="wifi-pass">Wifi Password:</label>
 <input type="password" id="wifi-pass" name="wifi_pass" placeholder="Enter wifi password"><br>
+
+<h2>Dexcom Credentials</h2>
+<label for="dexcom-user">Dexcom User:</label>
+<input type="text" id="dexcom-name" name="dexcom_name" placeholder="Enter Dexcom username"><br>
+<label for="wifi-pass">Dexcom Password:</label>
+<input type="password" id="dexcom-pass" name="dexcom_pass" placeholder="Enter Dexcom password"><br>
+
+<h2>Device Settings</h2>
+<label for="brightness">Lamp Brightness</label>
+<input type="range" min="0" max="100" value="50" class="slider" id="brightness">
 <input type="submit" value="Submit">
 </form>
+
 <p id="server-resp"></p>
 <script type="text/javascript">
 
-let theForm = document.getElementById("wifi-cred");
+let theForm = document.getElementById("app-settings");
 let serverResp = document.getElementById("server-resp");
 
 theForm.addEventListener("submit", async (e) => {

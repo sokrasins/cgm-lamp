@@ -63,8 +63,7 @@ pub mod server {
                     if let Ok(form) = serde_json::from_slice::<FormData>(&buf) {
                         write!(
                             resp,
-                            "Credentials set for wifi network {}!",
-                            form.wifi_name 
+                            "New settings applied"
                         )?; 
                         info!("Got new wifi creds - SSID: {} pass: {}", form.wifi_name, form.wifi_pass);
                     } else {

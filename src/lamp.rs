@@ -2,48 +2,44 @@ pub mod lamp {
     use core::time::Duration;
     use esp_idf_hal::{gpio::OutputPin, peripheral::Peripheral, rmt::RmtChannel};
     use esp_idf_svc::hal::delay::FreeRtos;
-    use esp_idf_svc::timer::EspTaskTimerService;
-    use esp_idf_svc::timer::EspTimer;
-    use esp_idf_svc::timer::EspTimerService;
-    use esp_idf_svc::timer::Task;
-    use rgb_led::RGB8;
-    use rgb_led::WS2812RMT;
+    use esp_idf_svc::timer::{EspTaskTimerService, EspTimer, EspTimerService, Task};
+    use rgb_led::{RGB8, WS2812RMT};
     use std::sync::{Arc, Mutex};
 
-    pub const BRIGHTNESS: u8 = 64;
+    pub const COLOR_MAX: u8 = 64;
 
     pub const RED: RGB8 = RGB8 {
-        r: BRIGHTNESS,
+        r: COLOR_MAX,
         g: 0,
         b: 0,
     };
     pub const BLUE: RGB8 = RGB8 {
         r: 0,
         g: 0,
-        b: BRIGHTNESS,
+        b: COLOR_MAX,
     };
     pub const YELLOW: RGB8 = RGB8 {
-        r: BRIGHTNESS,
-        g: BRIGHTNESS,
+        r: COLOR_MAX,
+        g: COLOR_MAX,
         b: 0,
     };
     pub const BLACK: RGB8 = RGB8 { r: 0, g: 0, b: 0 };
     pub const WHITE: RGB8 = RGB8 {
-        r: BRIGHTNESS,
-        g: BRIGHTNESS,
-        b: BRIGHTNESS,
+        r: COLOR_MAX,
+        g: COLOR_MAX,
+        b: COLOR_MAX,
     };
 
     pub const GREEN: RGB8 = RGB8 {
         r: 0,
-        g: BRIGHTNESS,
+        g: COLOR_MAX,
         b: 0,
     };
 
     pub const PURPLE: RGB8 = RGB8 {
-        r: BRIGHTNESS,
+        r: COLOR_MAX,
         g: 0,
-        b: BRIGHTNESS,
+        b: COLOR_MAX,
     };
 
     #[allow(dead_code)]
@@ -74,6 +70,7 @@ pub mod lamp {
         state: Arc<Mutex<LedState>>,
         timer: Option<EspTimerService<Task>>,
         cb_timer: Option<EspTimer<'static>>,
+        brightness: f32
     }
 
     impl Lamp {
@@ -84,6 +81,7 @@ pub mod lamp {
                 state: lock,
                 timer: None,
                 cb_timer: None,
+                brightness: 0.5,
             }
         }
 
@@ -133,7 +131,8 @@ pub mod lamp {
             *state = color;
         }
 
-        // TODO: changeable brightness
-        pub fn set_brightness(&mut self, brightness: usize) {}
+        pub fn set_brightness(&mut self, brightness: f32) {
+            self.brightness = brightness
+        }
     }
 }
