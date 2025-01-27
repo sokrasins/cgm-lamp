@@ -1,25 +1,17 @@
 use core::convert::TryInto;
-use core::time::Duration;
-
-use std::sync::{Arc, Mutex};
 
 use log::info;
 
 use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
-use embedded_svc::{
-    http::{Headers, Method},
-    io::{Read, Write},
-};
 use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
-use esp_idf_svc::http::server::EspHttpServer;
 use esp_idf_svc::log::EspLogger;
-use esp_idf_svc::timer::EspTaskTimerService;
 use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
-use rgb_led::{RGB8, WS2812RMT};
-use serde::Deserialize;
 
 use cgmlamp::dexcom::dexcom::Dexcom;
+use cgmlamp::lamp::lamp::Lamp;
+use cgmlamp::lamp::lamp::{get_color_in_sweep, LedState, BLUE, GREEN, PURPLE, RED, WHITE, YELLOW};
+use cgmlamp::server::server::Server;
 
 #[toml_cfg::toml_config]
 pub struct Config {
@@ -33,73 +25,12 @@ pub struct Config {
     dexcom_pass: &'static str,
 }
 
-static INDEX_HTML: &str = include_str!("index.html");
-
-#[allow(dead_code)]
-enum LedState {
-    Steady(RGB8),
-    Breathe(RGB8),
-    Off,
-}
-
 enum AppState {
     Boot,
     ConnectWifi,
     GetSession,
     DisplayGlucose,
 }
-
-// Need lots of stack to parse JSON
-const STACK_SIZE: usize = 10240;
-// Max payload length
-const MAX_LEN: usize = 128;
-
-const BRIGHTNESS: u8 = 128;
-
-const RED: RGB8 = RGB8 {
-    r: BRIGHTNESS,
-    g: 0,
-    b: 0,
-};
-const BLUE: RGB8 = RGB8 {
-    r: 0,
-    g: 0,
-    b: BRIGHTNESS,
-};
-const YELLOW: RGB8 = RGB8 {
-    r: BRIGHTNESS,
-    g: BRIGHTNESS,
-    b: 0,
-};
-const BLACK: RGB8 = RGB8 { r: 0, g: 0, b: 0 };
-const WHITE: RGB8 = RGB8 {
-    r: BRIGHTNESS,
-    g: BRIGHTNESS,
-    b: BRIGHTNESS,
-};
-
-const GREEN: RGB8 = RGB8 {
-    r: 0,
-    g: BRIGHTNESS,
-    b: 0,
-};
-
-const PURPLE: RGB8 = RGB8 {
-    r: BRIGHTNESS,
-    g: 0,
-    b: BRIGHTNESS,
-};
-
-#[derive(Deserialize)]
-struct FormData<'a> {
-    first_name: &'a str,
-    age: u32,
-    birthplace: &'a str,
-}
-
-// red -> green
-// green -> blue
-// blue -> purple
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -119,9 +50,6 @@ fn main() -> anyhow::Result<()> {
 
     // Application state
 
-    // Shared state between LED-writing thread and main thread
-    let lock = Arc::new(Mutex::new(LedState::Off));
-
     // App state
     let mut app_state = AppState::Boot;
 
@@ -131,38 +59,8 @@ fn main() -> anyhow::Result<()> {
     // Monitor glucose
     let mut no_measurement_count = 0;
 
-    // LED-writing thread
-    let timer_service = EspTaskTimerService::new()?;
-    let callback_timer = {
-        // Set up LED
-        let led = peripherals.pins.gpio8;
-        let channel = peripherals.rmt.channel0;
-        let mut ws2812 = WS2812RMT::new(led, channel)?;
-        let lock = Arc::clone(&lock);
-
-        timer_service.timer(move || {
-            let led = lock.lock().unwrap();
-            match *led {
-                LedState::Steady(color) => ws2812.set_pixel(color).unwrap(),
-                LedState::Breathe(color) => {
-                    for i in 0..80 {
-                        ws2812
-                            .set_pixel(get_color_in_sweep(&color, &BLACK, 80, i))
-                            .unwrap();
-                        FreeRtos::delay_ms(10);
-                    }
-                    for i in 0..80 {
-                        ws2812
-                            .set_pixel(get_color_in_sweep(&BLACK, &color, 80, i))
-                            .unwrap();
-                        FreeRtos::delay_ms(10);
-                    }
-                }
-                LedState::Off => ws2812.set_pixel(BLACK).unwrap(),
-            };
-        })?
-    };
-    callback_timer.every(Duration::from_secs(2))?;
+    let mut lamp = Lamp::new();
+    lamp.start(peripherals.pins.gpio8, peripherals.rmt.channel0)?;
 
     let mut wifi = BlockingWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
@@ -173,49 +71,19 @@ fn main() -> anyhow::Result<()> {
         match app_state {
             AppState::Boot => {
                 // Update presentation
-                let mut led = lock.lock().unwrap();
-                *led = LedState::Breathe(WHITE);
+                lamp.set_color(LedState::Breathe(WHITE));
 
                 // Advance to next state
                 app_state = AppState::ConnectWifi;
             }
             AppState::ConnectWifi => {
                 // Set up wifi, connect to AP
+                // TODO: If connection fails too many times, open in AP mode?
                 connect_wifi(&mut wifi, app_config.wifi_ssid, app_config.wifi_pass)?;
 
-                let mut server = create_server()?;
-
-                server.fn_handler("/", Method::Get, |req| {
-                    req.into_ok_response()?
-                        .write_all(INDEX_HTML.as_bytes())
-                        .map(|_| ())
-                })?;
-
-                server.fn_handler::<anyhow::Error, _>("/post", Method::Post, |mut req| {
-                    let len = req.content_len().unwrap_or(0) as usize;
-
-                    if len > MAX_LEN {
-                        req.into_status_response(413)?
-                            .write_all("Request too big".as_bytes())?;
-                        return Ok(());
-                    }
-
-                    let mut buf = vec![0; len];
-                    req.read_exact(&mut buf)?;
-                    let mut resp = req.into_ok_response()?;
-
-                    if let Ok(form) = serde_json::from_slice::<FormData>(&buf) {
-                        write!(
-                            resp,
-                            "Hello, {}-year-old {} from {}!",
-                            form.age, form.first_name, form.birthplace
-                        )?;
-                    } else {
-                        resp.write_all("JSON error".as_bytes())?;
-                    }
-
-                    Ok(())
-                })?;
+                // Start the http server
+                let mut server = Server::new();
+                server.start().unwrap();
                 core::mem::forget(server);
 
                 // Advance to next state
@@ -241,33 +109,17 @@ fn main() -> anyhow::Result<()> {
                     if let Ok(measurement) = dexcom.get_latest_glucose() {
                         info!("{:?}", measurement);
 
-                        let color = glucose_to_ledstate(measurement.value);
-                        let mut led = lock.lock().unwrap();
-                        *led = color;
+                        lamp.set_color(glucose_to_ledstate(measurement.value));
                         no_measurement_count = 0;
                     } else if no_measurement_count >= 600 {
-                        let mut led = lock.lock().unwrap();
-                        *led = LedState::Breathe(YELLOW);
+                        lamp.set_color(LedState::Breathe(YELLOW));
                     }
-
                     // Do it once every 20 sec. Any slower and the modem will go to sleep.
                     FreeRtos::delay_ms(1000 * 20);
                 }
             }
         };
     }
-}
-
-fn get_color_in_sweep(start_color: &RGB8, end_color: &RGB8, total: usize, idx: isize) -> RGB8 {
-    let r_step = (end_color.r as f64 - start_color.r as f64) / (total as f64);
-    let g_step = (end_color.g as f64 - start_color.g as f64) / (total as f64);
-    let b_step = (end_color.b as f64 - start_color.b as f64) / (total as f64);
-
-    RGB8::new(
-        ((start_color.r as f64) + (idx as f64 * r_step)) as u8,
-        ((start_color.g as f64) + (idx as f64 * g_step)) as u8,
-        ((start_color.b as f64) + (idx as f64 * b_step)) as u8,
-    )
 }
 
 fn glucose_to_ledstate(value: isize) -> LedState {
@@ -317,13 +169,4 @@ fn connect_wifi(
     info!("Wifi netif up");
 
     Ok(())
-}
-
-fn create_server() -> anyhow::Result<EspHttpServer<'static>> {
-    let server_configuration = esp_idf_svc::http::server::Configuration {
-        stack_size: STACK_SIZE,
-        ..Default::default()
-    };
-
-    Ok(EspHttpServer::new(&server_configuration)?)
 }
