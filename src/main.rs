@@ -6,14 +6,18 @@ use std::sync::{Arc, Mutex};
 use log::info;
 
 use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
-
+use embedded_svc::{
+    http::{Headers, Method},
+    io::{Read, Write},
+};
 use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
+use esp_idf_svc::http::server::EspHttpServer;
 use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::timer::EspTaskTimerService;
 use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
-
 use rgb_led::{RGB8, WS2812RMT};
+use serde::Deserialize;
 
 use cgmlamp::dexcom::dexcom::Dexcom;
 
@@ -29,6 +33,8 @@ pub struct Config {
     dexcom_pass: &'static str,
 }
 
+static INDEX_HTML: &str = include_str!("index.html");
+
 #[allow(dead_code)]
 enum LedState {
     Steady(RGB8),
@@ -42,6 +48,11 @@ enum AppState {
     GetSession,
     DisplayGlucose,
 }
+
+// Need lots of stack to parse JSON
+const STACK_SIZE: usize = 10240;
+// Max payload length
+const MAX_LEN: usize = 128;
 
 const BRIGHTNESS: u8 = 128;
 
@@ -78,6 +89,13 @@ const PURPLE: RGB8 = RGB8 {
     g: 0,
     b: BRIGHTNESS,
 };
+
+#[derive(Deserialize)]
+struct FormData<'a> {
+    first_name: &'a str,
+    age: u32,
+    birthplace: &'a str,
+}
 
 // red -> green
 // green -> blue
@@ -164,6 +182,41 @@ fn main() -> anyhow::Result<()> {
             AppState::ConnectWifi => {
                 // Set up wifi, connect to AP
                 connect_wifi(&mut wifi, app_config.wifi_ssid, app_config.wifi_pass)?;
+
+                let mut server = create_server()?;
+
+                server.fn_handler("/", Method::Get, |req| {
+                    req.into_ok_response()?
+                        .write_all(INDEX_HTML.as_bytes())
+                        .map(|_| ())
+                })?;
+
+                server.fn_handler::<anyhow::Error, _>("/post", Method::Post, |mut req| {
+                    let len = req.content_len().unwrap_or(0) as usize;
+
+                    if len > MAX_LEN {
+                        req.into_status_response(413)?
+                            .write_all("Request too big".as_bytes())?;
+                        return Ok(());
+                    }
+
+                    let mut buf = vec![0; len];
+                    req.read_exact(&mut buf)?;
+                    let mut resp = req.into_ok_response()?;
+
+                    if let Ok(form) = serde_json::from_slice::<FormData>(&buf) {
+                        write!(
+                            resp,
+                            "Hello, {}-year-old {} from {}!",
+                            form.age, form.first_name, form.birthplace
+                        )?;
+                    } else {
+                        resp.write_all("JSON error".as_bytes())?;
+                    }
+
+                    Ok(())
+                })?;
+                core::mem::forget(server);
 
                 // Advance to next state
                 app_state = AppState::GetSession;
@@ -264,4 +317,13 @@ fn connect_wifi(
     info!("Wifi netif up");
 
     Ok(())
+}
+
+fn create_server() -> anyhow::Result<EspHttpServer<'static>> {
+    let server_configuration = esp_idf_svc::http::server::Configuration {
+        stack_size: STACK_SIZE,
+        ..Default::default()
+    };
+
+    Ok(EspHttpServer::new(&server_configuration)?)
 }
