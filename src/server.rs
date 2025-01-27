@@ -3,6 +3,7 @@ pub mod server {
         http::{Headers, Method},
         io::{Read, Write},
     };
+    use log::info;
     use esp_idf_svc::http::server::EspHttpServer;
     use serde::Deserialize;
 
@@ -16,36 +17,36 @@ pub mod server {
 
     #[derive(Deserialize)]
     struct FormData<'a> {
-        first_name: &'a str,
-        age: u32,
-        birthplace: &'a str,
+        wifi_name: &'a str,
+        wifi_pass: &'a str,
     }
 
     pub struct Server<'a> {
-        server: EspHttpServer<'a>,
+        server: Option<EspHttpServer<'a>>,
     }
 
     impl<'a> Server<'a> {
         pub fn new() -> Self {
+            Server { server: None }
+        }
+
+        // TODO: Add a callback parameter here?
+        pub fn start(&mut self) -> anyhow::Result<()> {
+
             let server_configuration = esp_idf_svc::http::server::Configuration {
                 stack_size: STACK_SIZE,
                 ..Default::default()
             };
 
-            let server = EspHttpServer::new(&server_configuration).unwrap();
+            self.server = Some(EspHttpServer::new(&server_configuration).unwrap());
 
-            Server { server }
-        }
-
-        // TODO: Add a callback parameter here?
-        pub fn start(&mut self) -> anyhow::Result<()> {
-            self.server.fn_handler("/", Method::Get, |req| {
+            self.server.as_mut().unwrap().fn_handler("/", Method::Get, |req| {
                 req.into_ok_response()?
                     .write_all(INDEX_HTML.as_bytes())
                     .map(|_| ())
             })?;
 
-            self.server
+            self.server.as_mut().unwrap()
                 .fn_handler::<anyhow::Error, _>("/post", Method::Post, |mut req| {
                     let len = req.content_len().unwrap_or(0) as usize;
 
@@ -62,9 +63,10 @@ pub mod server {
                     if let Ok(form) = serde_json::from_slice::<FormData>(&buf) {
                         write!(
                             resp,
-                            "Hello, {}-year-old {} from {}!",
-                            form.age, form.first_name, form.birthplace
-                        )?;
+                            "Credentials set for wifi network {}!",
+                            form.wifi_name 
+                        )?; 
+                        info!("Got new wifi creds - SSID: {} pass: {}", form.wifi_name, form.wifi_pass);
                     } else {
                         resp.write_all("JSON error".as_bytes())?;
                     }

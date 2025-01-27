@@ -13,6 +13,7 @@ use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{get_color_in_sweep, LedState, BLUE, GREEN, PURPLE, RED, WHITE, YELLOW};
 use cgmlamp::server::server::Server;
 
+// Credentials stored in config file
 #[toml_cfg::toml_config]
 pub struct Config {
     #[default(" ")]
@@ -25,6 +26,7 @@ pub struct Config {
     dexcom_pass: &'static str,
 }
 
+// Application state machine states
 enum AppState {
     Boot,
     ConnectWifi,
@@ -67,6 +69,8 @@ fn main() -> anyhow::Result<()> {
         sys_loop,
     )?;
 
+    let mut server = Server::new();
+
     loop {
         match app_state {
             AppState::Boot => {
@@ -82,9 +86,7 @@ fn main() -> anyhow::Result<()> {
                 connect_wifi(&mut wifi, app_config.wifi_ssid, app_config.wifi_pass)?;
 
                 // Start the http server
-                let mut server = Server::new();
                 server.start().unwrap();
-                core::mem::forget(server);
 
                 // Advance to next state
                 app_state = AppState::GetSession;

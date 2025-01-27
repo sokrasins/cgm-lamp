@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ESP-RS JSON Post Handler</title>
+<title>CGM Lamp control panel</title>
 <style type="text/css">
 body {
 	max-width: 50em;
@@ -19,19 +19,17 @@ input {
 </style>
 </head>
 <body>
-<form id="the-form" action="/post" method="post" accept-charset="utf-8">
-<label for="first-name">First Name:</label>
-<input type="text" id="first-name" name="first_name"><br>
-<label for="age">Age:</label>
-<input type="number" id="age" name="age" min="0" max="150"><br>
-<label for="birthplace">Birthplace:</label>
-<input type="text" id="birthplace" name="birthplace"><br>
+<form id="wifi-cred" action="/post" method="post" accept-charset="utf-8">
+<label for="wifi-name">Wifi Name:</label>
+<input type="text" id="wifi-name" name="wifi_name" placeholder="Enter wifi name"><br>
+<label for="wifi-pass">Wifi Password:</label>
+<input type="password" id="wifi-pass" name="wifi_pass" placeholder="Enter wifi password"><br>
 <input type="submit" value="Submit">
 </form>
 <p id="server-resp"></p>
 <script type="text/javascript">
 
-let theForm = document.getElementById("the-form");
+let theForm = document.getElementById("wifi-cred");
 let serverResp = document.getElementById("server-resp");
 
 theForm.addEventListener("submit", async (e) => {
@@ -42,7 +40,6 @@ theForm.addEventListener("submit", async (e) => {
 
     try {
         let entries = Object.fromEntries(new FormData(form).entries());
-        entries["age"] = parseInt(entries["age"]);
         let resp = await fetch(url, {
             method: "POST",
             headers: {
@@ -52,6 +49,7 @@ theForm.addEventListener("submit", async (e) => {
             body: JSON.stringify(entries),
         });
         serverResp.innerText = await resp.text();
+        form.reset();
     } catch (err) {
         console.error(err);
     }
