@@ -6,6 +6,7 @@ pub mod server {
     };
     use esp_idf_svc::http::server::EspHttpServer;
     use log::info;
+    use crate::settings::settings::Store;
 
     static INDEX_HTML: &str = include_str!("index.html");
 
@@ -26,11 +27,15 @@ pub mod server {
 
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
+        store: &'a mut Store<'a>
     }
 
     impl<'a> Server<'a> {
-        pub fn new() -> Self {
-            Server { server: None }
+        pub fn new(store: &'a mut Store<'a>) -> Self {
+            Server { 
+                server: None,
+                store,
+            }
         }
 
         // TODO: Add a callback parameter here?
@@ -71,6 +76,7 @@ pub mod server {
 
                     //let settings = serde_json::from_slice::<AppDelta>(&buf).unwrap();
                     if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
+                        //self.store.modify(&form);
                         write!(resp, "New settings applied")?;
                         info!("Got new settings: {:?}", form);
                     } else {

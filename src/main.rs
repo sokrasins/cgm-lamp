@@ -7,11 +7,13 @@ use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
 use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{get_color_in_sweep, LedState, BLUE, GREEN, PURPLE, RED, WHITE, YELLOW};
 use cgmlamp::server::server::Server;
+use cgmlamp::settings::settings::Store;
 
 // Credentials stored in config file
 #[toml_cfg::toml_config]
@@ -51,6 +53,7 @@ fn main() -> anyhow::Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
 
     // Application state
+    let mut store = Store::new();
 
     // App state
     let mut app_state = AppState::Boot;
@@ -69,9 +72,17 @@ fn main() -> anyhow::Result<()> {
         sys_loop,
     )?;
 
-    let mut server = Server::new();
+    let mut server = Server::new(&mut store);
+    let mut last_query: u64 = 0;
+    const query_interval: u64 = 20;
 
     loop {
+        // Get time now
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
         match app_state {
             AppState::Boot => {
                 // Update presentation
@@ -99,28 +110,33 @@ fn main() -> anyhow::Result<()> {
                 app_state = AppState::DisplayGlucose;
             }
             AppState::DisplayGlucose => {
-                // Update last
-                no_measurement_count += 1;
+                if now > (last_query + query_interval) {
+                    // Update last
+                    info!("{}: getting latest glucose", now);
+                    last_query = now;
+                    no_measurement_count += 1;
 
-                // Are we still connected to wifi? If not, sending a request will crash the program
-                if !wifi.is_connected().unwrap() {
-                    info!("Not connected to wifi, reconnecting");
-                    app_state = AppState::ConnectWifi;
-                } else {
-                    // Get new reading
-                    if let Ok(measurement) = dexcom.get_latest_glucose() {
-                        info!("{:?}", measurement);
+                    // Are we still connected to wifi? If not, sending a request will crash the program
+                    if !wifi.is_connected().unwrap() {
+                        info!("Not connected to wifi, reconnecting");
+                        app_state = AppState::ConnectWifi;
+                    } else {
+                        // Get new reading
+                        if let Ok(measurement) = dexcom.get_latest_glucose() {
+                            info!("{:?}", measurement);
 
-                        lamp.set_color(glucose_to_ledstate(measurement.value));
-                        no_measurement_count = 0;
-                    } else if no_measurement_count >= 600 {
-                        lamp.set_color(LedState::Breathe(YELLOW));
+                            lamp.set_color(glucose_to_ledstate(measurement.value));
+                            no_measurement_count = 0;
+                        } else if no_measurement_count >= 600 {
+                            lamp.set_color(LedState::Breathe(YELLOW));
+                        }
                     }
-                    // Do it once every 20 sec. Any slower and the modem will go to sleep.
-                    FreeRtos::delay_ms(1000 * 20);
                 }
             }
         };
+
+        // 100 ms delay to let rtos do some work
+        FreeRtos::delay_ms(100);
     }
 }
 

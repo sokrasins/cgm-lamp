@@ -5,15 +5,15 @@ pub mod settings {
         fn update(&self, state: &AppSettings);
     }
 
-    pub trait Subject<'a, T: Observer> {
-        fn attach(&mut self, observer: &'a T);
-        fn detach(&mut self, observer: &'a T);
+    pub trait Subject<'a> {
+        fn attach(&mut self, observer: &'a dyn Observer);
+        fn detach(&mut self, observer: &'a dyn Observer);
         fn notify_observers(&self);
     }
 
-    pub struct Store<'a, T: Observer> {
+    pub struct Store<'a> {
         settings: AppSettings,
-        observers: Vec<&'a T>,
+        observers: Vec<&'a dyn Observer>,
     }
 
     #[derive(Debug, Deserialize, Serialize)]
@@ -36,31 +36,9 @@ pub mod settings {
             }
         }
 
-        pub fn merge(&mut self, delta: &AppSettings) {}
-    }
-
-    impl<'a, T: Observer + PartialEq> Store<'a, T> {
-        fn new() -> Store<'a, T> {
-            Store {
-                settings: AppSettings::new(),
-                observers: Vec::new(),
-            }
-        }
-
-        // TODO: add NVS
-        pub fn load_from_flash(&mut self) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        // TODO: add NVS
-        pub fn save_to_flash(&self) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        pub fn modify(&mut self, delta: &AppSettings) {
+        pub fn merge(&mut self, delta: &AppSettings) -> bool {
             let mut changed = false;
-            // Check for settings parameters in delta, and take in the new
-            // settings that exist
+
             if let Some(ap_ssid) = &delta.ap_ssid {
                 self.ap_ssid = Some(ap_ssid.to_owned());
                 changed = true;
@@ -82,14 +60,51 @@ pub mod settings {
                 changed = true;
             }
 
-            if changed {
-                self.save_to_flash().unwrap();
-            }
+            return changed;
+        }
+    }
 
-            // TODO: Trigger on_change callbacks
+    impl<'a> Store<'a> {
+        pub fn new() -> Store<'a> {
+            Store {
+                settings: AppSettings::new(),
+                observers: Vec::new(),
+            }
         }
 
-        // TODO: enable registering callbacks to detect settings changes
-        pub fn on_change_cb(&self) {}
+        // TODO: add NVS
+        pub fn load_from_flash(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        // TODO: add NVS
+        pub fn save_to_flash(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        pub fn modify(&mut self, delta: &AppSettings) {
+            if self.settings.merge(delta) {
+                self.save_to_flash().unwrap();
+            }; 
+
+            // TODO: Trigger on_change callbacks
+            self.notify_observers();
+        }
+    }
+
+    impl<'a> Subject<'a> for Store<'a> {
+        fn attach(&mut self, observer: &'a dyn Observer) {
+            self.observers.push(observer);
+        }
+
+        fn detach(&mut self, observer: &'a dyn Observer) {
+            self.observers.retain(|o| !std::ptr::eq(*o, observer));
+        }
+
+        fn notify_observers(&self) {
+            for item in self.observers.iter() {
+                item.update(&self.settings);
+            }
+        }
     }
 }
