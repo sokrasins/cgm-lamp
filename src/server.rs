@@ -1,5 +1,5 @@
 pub mod server {
-    use crate::settings::settings::AppSettings;
+    use crate::settings::settings::{Store, AppSettings};
     use embedded_svc::{
         http::{Headers, Method},
         io::{Read, Write},
@@ -7,6 +7,7 @@ pub mod server {
     use esp_idf_svc::http::server::EspHttpServer;
     use log::info;
     use std::sync::mpsc::Sender;
+    use std::sync::{Arc, Mutex};
 
     static INDEX_HTML: &str = include_str!("index.html");
 
@@ -16,37 +17,35 @@ pub mod server {
     // Max payload length
     const MAX_LEN: usize = 128;
 
-    /*#[derive(Debug, Deserialize)]
-    pub struct AppDelta<'a> {
-        ap_ssid: Option<&'a str>,
-        ap_pass: Option<&'a str>,
-        dexcom_user: Option<&'a str>,
-        dexcom_pass: Option<&'a str>,
-        lamp_brightness: Option<usize>,
-    }*/
-
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
         tx_channel: Sender<AppSettings>,
+        settings: Arc<Mutex<AppSettings>>,
     }
 
     impl<'a> Server<'a> {
-        pub fn new(tx_channel: Sender<AppSettings>) -> Self {
+        pub fn new(store: &Store) -> Self {
             Server {
                 server: None,
-                tx_channel,
+                tx_channel: store.tx_channel(),
+                settings: store.settings(),
             }
         }
 
-        // TODO: Add a callback parameter here?
+        // Start server listeners
         pub fn start(&mut self) -> anyhow::Result<()> {
             let server_configuration = esp_idf_svc::http::server::Configuration {
                 stack_size: STACK_SIZE,
                 ..Default::default()
             };
 
+            // Clone tx_channel to give it to the server handler
+            let tx = self.tx_channel.clone();
+            let settings: Arc<Mutex<AppSettings>> = Arc::clone(&self.settings);
+
             self.server = Some(EspHttpServer::new(&server_configuration).unwrap());
 
+            // Listener: serve the config page
             self.server
                 .as_mut()
                 .unwrap()
@@ -56,8 +55,7 @@ pub mod server {
                         .map(|_| ())
                 })?;
 
-            let tx = self.tx_channel.clone();
-
+            // Listener: Handle new settings from the web app
             self.server
                 .as_mut()
                 .unwrap()
@@ -74,11 +72,7 @@ pub mod server {
                     req.read_exact(&mut buf)?;
                     let mut resp = req.into_ok_response()?;
 
-                    //info!("buf: {:?}", buf);
-
-                    //let settings = serde_json::from_slice::<AppDelta>(&buf).unwrap();
                     if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
-                        //self.store.modify(&form);
                         info!("Got new settings: {:?}", form);
                         tx.send(form).unwrap();
                         write!(resp, "New settings applied")?;
@@ -89,22 +83,23 @@ pub mod server {
                     Ok(())
                 })?;
 
+            // Listener: Serve the device's status when on request
             self.server
                 .as_mut()
                 .unwrap()
-                .fn_handler("/state", Method::Get, |req| {
-                    let state = AppSettings {
-                        ap_ssid: Some("ResearchSmoko".to_string()),
-                        ap_pass: None,
-                        dexcom_user: Some("cvitat".to_string()),
-                        dexcom_pass: None,
-                        lamp_brightness: Some(64),
-                    };
-
+                .fn_handler("/state", Method::Get, move |req| {
                     info!("Get request on /state!");
 
-                    let state_ser = serde_json::to_string(&state).unwrap();
+                    // Acquire lock on sapp state
+                    let state_guard = settings.lock().unwrap();
+                    let state = (*state_guard).clone();
+                    std::mem::drop(state_guard);
+                    
 
+                    info!("{:?}", state);
+
+                    // Serialize, send back to web app
+                    let state_ser = serde_json::to_string(&state).unwrap();
                     req.into_ok_response()?
                         .write_all(state_ser.as_bytes())
                         .map(|_| ())

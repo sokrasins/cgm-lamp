@@ -13,7 +13,7 @@ use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{get_color_in_sweep, LedState, BLUE, GREEN, PURPLE, RED, WHITE, YELLOW};
 use cgmlamp::server::server::Server;
-use cgmlamp::settings::settings::{Store, Subject};
+use cgmlamp::settings::settings::{Store, Observer};
 
 // Credentials stored in config file
 #[toml_cfg::toml_config]
@@ -54,7 +54,6 @@ fn main() -> anyhow::Result<()> {
 
     // Application state
     let mut store = Store::new();
-    let tx_channel = store.create_channel();
 
     // App state
     let mut app_state = AppState::Boot;
@@ -73,17 +72,27 @@ fn main() -> anyhow::Result<()> {
         sys_loop,
     )?;
 
-    let mut server = Server::new(tx_channel);
+    let mut server = Server::new(&store);
     let mut last_query: u64 = 0;
     const QUERY_INTERVAL: u64 = 20;
 
     loop {
-        // Get time now
+        // Get time now. Adding the interval will make the first measurement 
+        // happen immediately.
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
-            .as_secs();
+            .as_secs() + QUERY_INTERVAL;
 
+        // Ingest settings updates
+        // Define closure to be explicit about lock lifetime
+        {
+            store.check_updates();
+            let settings = store.settings();
+            let settings = settings.lock().unwrap();
+            lamp.update(&settings);
+        }
+        
         match app_state {
             AppState::Boot => {
                 // Update presentation
@@ -111,12 +120,6 @@ fn main() -> anyhow::Result<()> {
                 app_state = AppState::DisplayGlucose;
             }
             AppState::DisplayGlucose => {
-                // Check for app state updates
-                store.check_updates();
-                if let Some(brightness) = store.settings.lamp_brightness {
-                    lamp.set_brightness(brightness as f32 / 255f32);
-                }
-
                 if now > (last_query + QUERY_INTERVAL) {
                     // Update last
                     info!("{}: getting latest glucose", now);

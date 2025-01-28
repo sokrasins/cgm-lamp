@@ -34,6 +34,5 @@ Available settings include:
 
 - Lamp brightness: set and get
 - Credential storage mode: set and get
-- Connected to wifi: get
 - Factory reset: set
 - Device temp: get

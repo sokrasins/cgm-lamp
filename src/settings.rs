@@ -3,9 +3,10 @@ pub mod settings {
     use serde::{Deserialize, Serialize};
     use std::sync::mpsc;
     use std::sync::mpsc::{Receiver, Sender};
+    use std::sync::{Arc, Mutex};
 
     pub trait Observer {
-        fn update(&self, state: &AppSettings);
+        fn update(&self, state: &AppSettings) -> bool;
     }
 
     pub trait Subject<'a> {
@@ -15,18 +16,19 @@ pub mod settings {
     }
 
     pub struct Store<'a> {
-        pub settings: AppSettings,
+        settings: Arc<Mutex<AppSettings>>,
         observers: Vec<&'a dyn Observer>,
-        rx_channel: Option<Receiver<AppSettings>>,
+        rx_channel: Receiver<AppSettings>,
+        tx_channel: Sender<AppSettings>,
     }
 
-    #[derive(Debug, Deserialize, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct AppSettings {
         pub ap_ssid: Option<String>,
         pub ap_pass: Option<String>,
         pub dexcom_user: Option<String>,
         pub dexcom_pass: Option<String>,
-        pub lamp_brightness: Option<usize>,
+        pub lamp_brightness: Option<f32>,
     }
 
     impl AppSettings {
@@ -36,7 +38,7 @@ pub mod settings {
                 ap_pass: None,
                 dexcom_user: None,
                 dexcom_pass: None,
-                lamp_brightness: None,
+                lamp_brightness: Some(0.25),
             }
         }
 
@@ -70,10 +72,12 @@ pub mod settings {
 
     impl<'a> Store<'a> {
         pub fn new() -> Store<'a> {
+            let (tx_channel, rx_channel) = mpsc::channel::<AppSettings>();
             Store {
-                settings: AppSettings::new(),
+                settings: Arc::new(Mutex::new(AppSettings::new())),
                 observers: Vec::new(),
-                rx_channel: None,
+                rx_channel,
+                tx_channel,
             }
         }
 
@@ -88,26 +92,29 @@ pub mod settings {
         }
 
         pub fn modify(&mut self, delta: &AppSettings) {
-            if self.settings.merge(delta) {
+            let mut settings = self.settings.lock().unwrap();
+            if (*settings).merge(delta) {
                 self.save_to_flash().unwrap();
             };
+            std::mem::drop(settings);
 
             // Trigger on_change callbacks
             self.notify_observers();
         }
 
-        pub fn create_channel(&mut self) -> Sender<AppSettings> {
-            let (tx, rx) = mpsc::channel::<AppSettings>();
-            self.rx_channel = Some(rx);
-
-            tx
-        }
-
         pub fn check_updates(&mut self) {
-            if let Ok(settings) = self.rx_channel.as_ref().unwrap().try_recv() {
+            if let Ok(settings) = self.rx_channel.try_recv() {
                 info!("Update found: {:?}", settings);
                 self.modify(&settings);
             }
+        }
+
+        pub fn settings(&self) -> Arc<Mutex<AppSettings>> {
+            Arc::clone(&self.settings)
+        }
+        
+        pub fn tx_channel(&self) -> Sender<AppSettings> {
+            self.tx_channel.clone()
         }
     }
 
@@ -121,8 +128,9 @@ pub mod settings {
         }
 
         fn notify_observers(&self) {
+            let settings = self.settings.lock().unwrap();
             for item in self.observers.iter() {
-                item.update(&self.settings);
+                item.update(&settings);
             }
         }
     }

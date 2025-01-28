@@ -162,10 +162,14 @@ pub mod lamp {
     }
 
     impl Observer for Lamp {
-        fn update(&self, state: &AppSettings) {
+        fn update(&self, state: &AppSettings) -> bool {
+            let mut ret = false;
             if let Some(brightness) = state.lamp_brightness {
-                self.set_brightness((brightness as f32) / 255f32);
+                self.set_brightness(brightness);
+                ret = true;
             }
+
+            ret
         }
     }
 }
