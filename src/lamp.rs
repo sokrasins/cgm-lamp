@@ -1,11 +1,11 @@
 pub mod lamp {
+    use crate::settings::settings::{AppSettings, Observer};
     use core::time::Duration;
     use esp_idf_hal::{gpio::OutputPin, peripheral::Peripheral, rmt::RmtChannel};
     use esp_idf_svc::hal::delay::FreeRtos;
     use esp_idf_svc::timer::{EspTaskTimerService, EspTimer, EspTimerService, Task};
     use rgb_led::{RGB8, WS2812RMT};
     use std::sync::{Arc, Mutex};
-    use crate::settings::settings::{Observer, AppSettings};
 
     pub const COLOR_MAX: u8 = 255;
 
@@ -164,13 +164,8 @@ pub mod lamp {
     impl Observer for Lamp {
         fn update(&self, state: &AppSettings) {
             if let Some(brightness) = state.lamp_brightness {
-                self.set_brightness(
-                    (brightness as f32) / 255f32
-                );
+                self.set_brightness((brightness as f32) / 255f32);
             }
         }
     }
-
-    unsafe impl Send for Lamp {}
-    unsafe impl Sync for Lamp {}
 }

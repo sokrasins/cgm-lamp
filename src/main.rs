@@ -13,7 +13,7 @@ use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{get_color_in_sweep, LedState, BLUE, GREEN, PURPLE, RED, WHITE, YELLOW};
 use cgmlamp::server::server::Server;
-use cgmlamp::settings::settings::Store;
+use cgmlamp::settings::settings::{Store, Subject};
 
 // Credentials stored in config file
 #[toml_cfg::toml_config]
@@ -54,6 +54,7 @@ fn main() -> anyhow::Result<()> {
 
     // Application state
     let mut store = Store::new();
+    let tx_channel = store.create_channel();
 
     // App state
     let mut app_state = AppState::Boot;
@@ -72,9 +73,9 @@ fn main() -> anyhow::Result<()> {
         sys_loop,
     )?;
 
-    let mut server = Server::new(&mut store);
+    let mut server = Server::new(tx_channel);
     let mut last_query: u64 = 0;
-    const query_interval: u64 = 20;
+    const QUERY_INTERVAL: u64 = 20;
 
     loop {
         // Get time now
@@ -110,7 +111,13 @@ fn main() -> anyhow::Result<()> {
                 app_state = AppState::DisplayGlucose;
             }
             AppState::DisplayGlucose => {
-                if now > (last_query + query_interval) {
+                // Check for app state updates
+                store.check_updates();
+                if let Some(brightness) = store.settings.lamp_brightness {
+                    lamp.set_brightness(brightness as f32 / 255f32);
+                }
+
+                if now > (last_query + QUERY_INTERVAL) {
                     // Update last
                     info!("{}: getting latest glucose", now);
                     last_query = now;

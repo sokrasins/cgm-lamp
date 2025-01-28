@@ -1,5 +1,8 @@
 pub mod settings {
+    use log::info;
     use serde::{Deserialize, Serialize};
+    use std::sync::mpsc;
+    use std::sync::mpsc::{Receiver, Sender};
 
     pub trait Observer {
         fn update(&self, state: &AppSettings);
@@ -12,8 +15,9 @@ pub mod settings {
     }
 
     pub struct Store<'a> {
-        settings: AppSettings,
+        pub settings: AppSettings,
         observers: Vec<&'a dyn Observer>,
+        rx_channel: Option<Receiver<AppSettings>>,
     }
 
     #[derive(Debug, Deserialize, Serialize)]
@@ -69,6 +73,7 @@ pub mod settings {
             Store {
                 settings: AppSettings::new(),
                 observers: Vec::new(),
+                rx_channel: None,
             }
         }
 
@@ -85,10 +90,24 @@ pub mod settings {
         pub fn modify(&mut self, delta: &AppSettings) {
             if self.settings.merge(delta) {
                 self.save_to_flash().unwrap();
-            }; 
+            };
 
-            // TODO: Trigger on_change callbacks
+            // Trigger on_change callbacks
             self.notify_observers();
+        }
+
+        pub fn create_channel(&mut self) -> Sender<AppSettings> {
+            let (tx, rx) = mpsc::channel::<AppSettings>();
+            self.rx_channel = Some(rx);
+
+            tx
+        }
+
+        pub fn check_updates(&mut self) {
+            if let Ok(settings) = self.rx_channel.as_ref().unwrap().try_recv() {
+                info!("Update found: {:?}", settings);
+                self.modify(&settings);
+            }
         }
     }
 

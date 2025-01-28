@@ -6,7 +6,7 @@ pub mod server {
     };
     use esp_idf_svc::http::server::EspHttpServer;
     use log::info;
-    use crate::settings::settings::Store;
+    use std::sync::mpsc::Sender;
 
     static INDEX_HTML: &str = include_str!("index.html");
 
@@ -27,14 +27,14 @@ pub mod server {
 
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
-        store: &'a mut Store<'a>
+        tx_channel: Sender<AppSettings>,
     }
 
     impl<'a> Server<'a> {
-        pub fn new(store: &'a mut Store<'a>) -> Self {
-            Server { 
+        pub fn new(tx_channel: Sender<AppSettings>) -> Self {
+            Server {
                 server: None,
-                store,
+                tx_channel,
             }
         }
 
@@ -56,10 +56,12 @@ pub mod server {
                         .map(|_| ())
                 })?;
 
+            let tx = self.tx_channel.clone();
+
             self.server
                 .as_mut()
                 .unwrap()
-                .fn_handler::<anyhow::Error, _>("/post", Method::Post, |mut req| {
+                .fn_handler::<anyhow::Error, _>("/post", Method::Post, move |mut req| {
                     let len = req.content_len().unwrap_or(0) as usize;
 
                     if len > MAX_LEN {
@@ -77,8 +79,9 @@ pub mod server {
                     //let settings = serde_json::from_slice::<AppDelta>(&buf).unwrap();
                     if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
                         //self.store.modify(&form);
-                        write!(resp, "New settings applied")?;
                         info!("Got new settings: {:?}", form);
+                        tx.send(form).unwrap();
+                        write!(resp, "New settings applied")?;
                     } else {
                         resp.write_all("JSON error".as_bytes())?;
                     }
