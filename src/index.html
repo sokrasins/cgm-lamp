@@ -57,6 +57,7 @@ const removeEmptyValues = (object) =>
 let theForm = document.getElementById("app-settings");
 let serverResp = document.getElementById("server-resp");
 
+// Send new form data to the lamp
 theForm.addEventListener("submit", async (e) => {
     e.preventDefault();
 
@@ -80,6 +81,59 @@ theForm.addEventListener("submit", async (e) => {
         console.error(err);
     }
 });
+
+// Ask for state information to update form fields
+document.addEventListener("DOMContentLoaded", async () => {
+  let url = window.location.href;
+  //print(window.location.href);
+
+  try {
+      let resp = await fetch(url + "state", {
+          method: "GET",
+          headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+          },
+      });
+      body = await resp.json();
+
+    // Get form elements
+    const ap_ssid = document.getElementById('ap-name');
+    const ap_pass = document.getElementById('ap-pass');
+    const dexcom_user = document.getElementById('dexcom-name');
+    const dexcom_pass = document.getElementById('dexcom-pass');
+    const lamp_brightness = document.getElementById('brightness');
+
+    // If we got valid data for a field, set it
+    if (body.ap_ssid !== null)
+    {
+      ap_ssid.value = body.ap_ssid;
+    }
+
+    if (body.ap_pass !== null)
+    {
+      ap_pass.value = body.ap_pass;
+    }
+
+    if (body.dexcom_user !== null)
+    {
+      dexcom_user.value = body.dexcom_user;
+    }
+
+    if (body.dexcom_pass !== null)
+    {
+      dexcom_pass.value = body.dexcom_pass;
+    }
+
+    if (body.lamp_brightness !== null)
+    {
+      lamp_brightness.value = body.lamp_brightness;
+    }
+
+  } catch (err) {
+      console.error(err);
+  }
+})
 
 </script>
 </body>

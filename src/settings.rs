@@ -1,13 +1,28 @@
 pub mod settings {
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Deserialize)]
+    pub trait Observer {
+        fn update(&self, state: &AppSettings);
+    }
+
+    pub trait Subject<'a, T: Observer> {
+        fn attach(&mut self, observer: &'a T);
+        fn detach(&mut self, observer: &'a T);
+        fn notify_observers(&self);
+    }
+
+    pub struct Store<'a, T: Observer> {
+        settings: AppSettings,
+        observers: Vec<&'a T>,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
     pub struct AppSettings {
-        ap_ssid: Option<String>,
-        ap_pass: Option<String>,
-        dexcom_user: Option<String>,
-        dexcom_pass: Option<String>,
-        lamp_brightness: Option<usize>,
+        pub ap_ssid: Option<String>,
+        pub ap_pass: Option<String>,
+        pub dexcom_user: Option<String>,
+        pub dexcom_pass: Option<String>,
+        pub lamp_brightness: Option<usize>,
     }
 
     impl AppSettings {
@@ -18,6 +33,17 @@ pub mod settings {
                 dexcom_user: None,
                 dexcom_pass: None,
                 lamp_brightness: None,
+            }
+        }
+
+        pub fn merge(&mut self, delta: &AppSettings) {}
+    }
+
+    impl<'a, T: Observer + PartialEq> Store<'a, T> {
+        fn new() -> Store<'a, T> {
+            Store {
+                settings: AppSettings::new(),
+                observers: Vec::new(),
             }
         }
 

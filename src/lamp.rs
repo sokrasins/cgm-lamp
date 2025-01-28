@@ -6,7 +6,7 @@ pub mod lamp {
     use rgb_led::{RGB8, WS2812RMT};
     use std::sync::{Arc, Mutex};
 
-    pub const COLOR_MAX: u8 = 64;
+    pub const COLOR_MAX: u8 = 255;
 
     pub const RED: RGB8 = RGB8 {
         r: COLOR_MAX,
@@ -70,18 +70,27 @@ pub mod lamp {
         state: Arc<Mutex<LedState>>,
         timer: Option<EspTimerService<Task>>,
         cb_timer: Option<EspTimer<'static>>,
-        brightness: f32
+        brightness: Arc<Mutex<f32>>,
+    }
+
+    pub fn set_bright(color: &RGB8, brightness: f32) -> RGB8 {
+        RGB8 {
+            r: ((color.r as f32) * brightness) as u8,
+            g: ((color.g as f32) * brightness) as u8,
+            b: ((color.b as f32) * brightness) as u8,
+        }
     }
 
     impl Lamp {
         pub fn new() -> Self {
             let lock = Arc::new(Mutex::new(LedState::Off));
+            let brightness = Arc::new(Mutex::new(0.25));
 
             Lamp {
                 state: lock,
                 timer: None,
                 cb_timer: None,
-                brightness: 0.5,
+                brightness,
             }
         }
 
@@ -95,21 +104,35 @@ pub mod lamp {
             self.cb_timer = Some({
                 let lock = Arc::clone(&self.state);
                 let mut ws2812 = WS2812RMT::new(led, channel).unwrap();
+                let brightness = Arc::clone(&self.brightness);
 
                 self.timer.clone().unwrap().timer(move || {
                     let led = lock.lock().unwrap();
+                    let bright = brightness.lock().unwrap();
                     match *led {
-                        LedState::Steady(color) => ws2812.set_pixel(color).unwrap(),
+                        LedState::Steady(color) => {
+                            ws2812.set_pixel(set_bright(&color, *bright)).unwrap()
+                        }
                         LedState::Breathe(color) => {
                             for i in 0..80 {
                                 ws2812
-                                    .set_pixel(get_color_in_sweep(&color, &BLACK, 80, i))
+                                    .set_pixel(get_color_in_sweep(
+                                        &set_bright(&color, *bright),
+                                        &BLACK,
+                                        80,
+                                        i,
+                                    ))
                                     .unwrap();
                                 FreeRtos::delay_ms(10);
                             }
                             for i in 0..80 {
                                 ws2812
-                                    .set_pixel(get_color_in_sweep(&BLACK, &color, 80, i))
+                                    .set_pixel(get_color_in_sweep(
+                                        &BLACK,
+                                        &set_bright(&color, *bright),
+                                        80,
+                                        i,
+                                    ))
                                     .unwrap();
                                 FreeRtos::delay_ms(10);
                             }
@@ -132,7 +155,8 @@ pub mod lamp {
         }
 
         pub fn set_brightness(&mut self, brightness: f32) {
-            self.brightness = brightness
+            let mut self_brightness = self.brightness.lock().unwrap();
+            *self_brightness = brightness;
         }
     }
 }

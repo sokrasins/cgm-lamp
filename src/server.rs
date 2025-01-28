@@ -1,11 +1,11 @@
 pub mod server {
+    use crate::settings::settings::AppSettings;
     use embedded_svc::{
         http::{Headers, Method},
         io::{Read, Write},
     };
-    use log::info;
     use esp_idf_svc::http::server::EspHttpServer;
-    use crate::settings::settings::AppSettings;
+    use log::info;
 
     static INDEX_HTML: &str = include_str!("index.html");
 
@@ -35,7 +35,6 @@ pub mod server {
 
         // TODO: Add a callback parameter here?
         pub fn start(&mut self) -> anyhow::Result<()> {
-
             let server_configuration = esp_idf_svc::http::server::Configuration {
                 stack_size: STACK_SIZE,
                 ..Default::default()
@@ -43,13 +42,18 @@ pub mod server {
 
             self.server = Some(EspHttpServer::new(&server_configuration).unwrap());
 
-            self.server.as_mut().unwrap().fn_handler("/", Method::Get, |req| {
-                req.into_ok_response()?
-                    .write_all(INDEX_HTML.as_bytes())
-                    .map(|_| ())
-            })?;
+            self.server
+                .as_mut()
+                .unwrap()
+                .fn_handler("/", Method::Get, |req| {
+                    req.into_ok_response()?
+                        .write_all(INDEX_HTML.as_bytes())
+                        .map(|_| ())
+                })?;
 
-            self.server.as_mut().unwrap()
+            self.server
+                .as_mut()
+                .unwrap()
                 .fn_handler::<anyhow::Error, _>("/post", Method::Post, |mut req| {
                     let len = req.content_len().unwrap_or(0) as usize;
 
@@ -63,20 +67,38 @@ pub mod server {
                     req.read_exact(&mut buf)?;
                     let mut resp = req.into_ok_response()?;
 
-                    info!("buf: {:?}", buf);
+                    //info!("buf: {:?}", buf);
 
                     //let settings = serde_json::from_slice::<AppDelta>(&buf).unwrap();
                     if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
-                        write!(
-                            resp,
-                            "New settings applied"
-                        )?; 
+                        write!(resp, "New settings applied")?;
                         info!("Got new settings: {:?}", form);
                     } else {
                         resp.write_all("JSON error".as_bytes())?;
                     }
 
                     Ok(())
+                })?;
+
+            self.server
+                .as_mut()
+                .unwrap()
+                .fn_handler("/state", Method::Get, |req| {
+                    let state = AppSettings {
+                        ap_ssid: Some("ResearchSmoko".to_string()),
+                        ap_pass: None,
+                        dexcom_user: Some("cvitat".to_string()),
+                        dexcom_pass: None,
+                        lamp_brightness: Some(64),
+                    };
+
+                    info!("Get request on /state!");
+
+                    let state_ser = serde_json::to_string(&state).unwrap();
+
+                    req.into_ok_response()?
+                        .write_all(state_ser.as_bytes())
+                        .map(|_| ())
                 })?;
 
             Ok(())
