@@ -26,7 +26,7 @@ input {
 <h1>CGM Lamp Configuration Panel</h1>
 To change the configuration for you lamp, enter the changes here and click "submit"<br>
 
-<form id="app-settings" action="/post" method="post" accept-charset="utf-8">
+<form id="app-settings" action="" method="post" accept-charset="utf-8">
 <h2>Device Settings</h2>
 <label for="brightness">Lamp Brightness</label>
 <input type="range" min="0.0" max="1.0" value="0.25" step="0.0001" class="slider" id="brightness" name="lamp_brightness">
@@ -58,9 +58,12 @@ const removeEmptyValues = (object) =>
 let theForm = document.getElementById("app-settings");
 let serverResp = document.getElementById("server-resp");
 
+const api_state = "v1/state"
+const api_set = "v1/set"
+
 const send_settings = async () => {
   let form = document.getElementById("app-settings");
-  let url = form.action;
+  let url = window.location.href + api_set;
 
   try {
       let entries = Object.fromEntries(new FormData(form).entries());
@@ -91,11 +94,11 @@ document.getElementById("brightness").onchange = send_settings;
 
 // Ask for state information to update form fields
 document.addEventListener("DOMContentLoaded", async () => {
-  let url = window.location.href;
+  let url = window.location.href + api_state;
   //print(window.location.href);
 
   try {
-      let resp = await fetch(url + "state", {
+      let resp = await fetch(url, {
           method: "GET",
           headers: {
               "Content-Type": "application/json",

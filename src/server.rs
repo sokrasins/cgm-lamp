@@ -1,5 +1,5 @@
 pub mod server {
-    use crate::settings::settings::{Store, AppSettings};
+    use crate::settings::settings::{AppSettings, Store};
     use embedded_svc::{
         http::{Headers, Method},
         io::{Read, Write},
@@ -8,6 +8,7 @@ pub mod server {
     use log::info;
     use std::sync::mpsc::Sender;
     use std::sync::{Arc, Mutex};
+    //use std::time::{SystemTime, UNIX_EPOCH};
 
     static INDEX_HTML: &str = include_str!("index.html");
 
@@ -15,7 +16,11 @@ pub mod server {
 
     // Need lots of stack to parse JSON
     // Max payload length
-    const MAX_LEN: usize = 128;
+    const MAX_LEN: usize = 1024;
+
+    const API_VER: &str = "v1";
+    const API_STATE: &str = "state";
+    const API_SET: &str = "set";
 
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
@@ -55,46 +60,52 @@ pub mod server {
                         .map(|_| ())
                 })?;
 
+            info!("/{}/{}", API_VER, API_STATE);
             // Listener: Handle new settings from the web app
             self.server
                 .as_mut()
                 .unwrap()
-                .fn_handler::<anyhow::Error, _>("/post", Method::Post, move |mut req| {
-                    let len = req.content_len().unwrap_or(0) as usize;
+                .fn_handler::<anyhow::Error, _>(
+                    &format!("/{}/{}", API_VER, API_SET),
+                    Method::Post,
+                    move |mut req| {
+                        let len = req.content_len().unwrap_or(0) as usize;
 
-                    if len > MAX_LEN {
-                        req.into_status_response(413)?
-                            .write_all("Request too big".as_bytes())?;
-                        return Ok(());
-                    }
+                        if len > MAX_LEN {
+                            req.into_status_response(413)?
+                                .write_all("Request too big".as_bytes())?;
+                            return Ok(());
+                        }
 
-                    let mut buf = vec![0; len];
-                    req.read_exact(&mut buf)?;
-                    let mut resp = req.into_ok_response()?;
+                        let mut buf = vec![0; len];
+                        req.read_exact(&mut buf)?;
+                        let mut resp = req.into_ok_response()?;
 
-                    if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
-                        info!("Got new settings: {:?}", form);
-                        tx.send(form).unwrap();
-                        write!(resp, "New settings applied")?;
-                    } else {
-                        resp.write_all("JSON error".as_bytes())?;
-                    }
+                        if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
+                            info!("Got new settings: {:?}", form);
+                            tx.send(form).unwrap();
+                            write!(resp, "New settings applied")?;
+                        } else {
+                            resp.write_all("JSON error".as_bytes())?;
+                        }
 
-                    Ok(())
-                })?;
+                        Ok(())
+                    },
+                )?;
 
             // Listener: Serve the device's status when on request
-            self.server
-                .as_mut()
-                .unwrap()
-                .fn_handler("/state", Method::Get, move |req| {
+            self.server.as_mut().unwrap().fn_handler(
+                &format!("/{}/{}", API_VER, API_STATE),
+                Method::Get,
+                move |req| {
                     info!("Get request on /state!");
 
                     // Acquire lock on sapp state
                     let state_guard = settings.lock().unwrap();
-                    let state = (*state_guard).clone();
+                    let mut state = (*state_guard).clone();
                     std::mem::drop(state_guard);
-                    
+                    state.ap_pass = None;
+                    state.dexcom_pass = None;
 
                     info!("{:?}", state);
 
@@ -103,7 +114,8 @@ pub mod server {
                     req.into_ok_response()?
                         .write_all(state_ser.as_bytes())
                         .map(|_| ())
-                })?;
+                },
+            )?;
 
             Ok(())
         }
