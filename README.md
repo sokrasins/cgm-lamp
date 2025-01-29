@@ -4,7 +4,7 @@ An ESP32-C6-powered device to indicate glucose as a color.
 
 ## Features
 
-- Displays glucose via lamp color
+- ✅ Displays glucose via lamp color
 - Max brightness settable by rotating lamp body
 - Device configuration through web server
   - HTTPS
@@ -32,7 +32,7 @@ An ESP32-C6-powered device to indicate glucose as a color.
 
 Available settings include:
 
-- Lamp brightness: set and get
+- ✅ Lamp brightness: set and get
 - Credential storage mode: set and get
 - Factory reset: set
 - Device temp: get
