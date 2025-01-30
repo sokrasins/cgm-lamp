@@ -1,5 +1,9 @@
 # CGM Lamp Firmware
 
+## Setup
+
+TODO
+
 ## Building
 
 ```bash
@@ -38,7 +42,7 @@ NOTE: I don't seem to be able to define multiple REST methods on a single API en
 **/api/v1/state** - GET
 
 ```json
-GET{
+{
   "brightness": 0-255,
   "state": "on/off",
   "cred-store": "AMNESIA | PASSWORD | PERMISSIVE",
@@ -50,8 +54,11 @@ GET{
   "batt-attached": "true | false"
   "batt-charging": "true | false"
   "temp": 0-100,
-  "uptime": millis()
+  "uptime": 0-0xFFFFFFFF
 }
 ```
 
 **/api/v1/reset** - POST
+
+No body required for this endpoint - performs a factory reset, restoring default
+settings to device.
