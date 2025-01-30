@@ -6,7 +6,7 @@ pub mod settings {
     use std::sync::{Arc, Mutex};
 
     pub trait Observer {
-        fn update(&self, state: &AppSettings) -> bool;
+        fn update(&mut self, state: &AppSettings) -> bool;
     }
 
     pub trait Subject<'a> {
@@ -22,7 +22,7 @@ pub mod settings {
         tx_channel: Sender<AppSettings>,
     }
 
-    #[derive(Clone, Debug, Deserialize, Serialize)]
+    #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
     pub struct AppSettings {
         pub ap_ssid: Option<String>,
         pub ap_pass: Option<String>,
@@ -112,7 +112,7 @@ pub mod settings {
         pub fn settings(&self) -> Arc<Mutex<AppSettings>> {
             Arc::clone(&self.settings)
         }
-        
+
         pub fn tx_channel(&self) -> Sender<AppSettings> {
             self.tx_channel.clone()
         }
@@ -128,10 +128,10 @@ pub mod settings {
         }
 
         fn notify_observers(&self) {
-            let settings = self.settings.lock().unwrap();
+            /*let settings = self.settings.lock().unwrap();
             for item in self.observers.iter() {
                 item.update(&settings);
-            }
+            }*/
         }
     }
 }

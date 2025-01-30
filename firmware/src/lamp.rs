@@ -50,6 +50,25 @@ pub mod lamp {
         Off,
     }
 
+    impl LedState {
+        pub fn from_glucose(value: isize) -> LedState {
+            // Multi-colored colormap
+            // Red -> Green -> Blue -> Purple
+            match value {
+                0..55 => LedState::Breathe(RED),
+                55..152 => LedState::Steady(get_color_in_sweep(&RED, &GREEN, 152 - 55, value - 55)),
+                152..250 => {
+                    LedState::Steady(get_color_in_sweep(&GREEN, &BLUE, 250 - 152, value - 152))
+                }
+                250..300 => {
+                    LedState::Steady(get_color_in_sweep(&BLUE, &PURPLE, 300 - 250, value - 250))
+                }
+                300..500 => LedState::Breathe(PURPLE),
+                _ => LedState::Breathe(WHITE),
+            }
+        }
+    }
+
     pub fn get_color_in_sweep(
         start_color: &RGB8,
         end_color: &RGB8,
@@ -162,7 +181,7 @@ pub mod lamp {
     }
 
     impl Observer for Lamp {
-        fn update(&self, state: &AppSettings) -> bool {
+        fn update(&mut self, state: &AppSettings) -> bool {
             let mut ret = false;
             if let Some(brightness) = state.lamp_brightness {
                 self.set_brightness(brightness);
