@@ -28,7 +28,7 @@ An ESP32-C6-powered device to indicate glucose as a color.
   - Password-protected
   - Permissive
 
-## API 
+## API
 
 API:
 
@@ -50,16 +50,12 @@ GET{
   "brightness": 0-255,
   "state": "on/off",
   "cred-store": "AMNESIA | PASSWORD | PERMISSIVE",
-  "wifi-ssid": "",
+  "wifi-has-ssid": "true | false",
   "wifi-has-pass": "true | false",
-  "dexcom-user": "",
+  "dexcom-has-user": "true | false",
   "dexcom-has-pass": "true | false",
   "temp": 0-100,
   "uptime": millis()
 }
 
 v1/reset - post
-
-
-
-
