@@ -28,6 +28,8 @@ enum AppState {
     DisplayGlucose,
 }
 
+const MAX_TRY_COUNT: usize = 3;
+
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -106,24 +108,23 @@ fn main() -> anyhow::Result<()> {
         match app_state {
             AppState::Boot => {
                 // Update presentation
-                lamp.set_color(LedState::Breathe(WHITE));
+                lamp.set_color(LedState::Steady(WHITE));
 
-                // Advance to next state
-                app_state = AppState::PresentAp;
-            }
-            AppState::PresentAp => {
                 let settings_guard = store.settings();
                 let settings_guard = settings_guard.lock().unwrap();
 
                 if (*settings_guard).has_wifi_creds() && (*settings_guard).has_dexcom_creds() {
                     app_state = AppState::ConnectWifi;
                 } else {
-                    info!("Not enough credentials, starting AP mode");
-                    launch_ap(&mut wifi)?;
-                    server.start().unwrap();
-                    lamp.set_color(LedState::Steady(WHITE));
-                    app_state = AppState::WaitForConfig;
+                    // Advance to next state
+                    app_state = AppState::PresentAp;
                 }
+            }
+            AppState::PresentAp => {
+                launch_ap(&mut wifi)?;
+                server.start().unwrap();
+                lamp.set_color(LedState::Breathe(WHITE));
+                app_state = AppState::WaitForConfig;
             }
             AppState::WaitForConfig => {
                 let settings_guard = store.settings();
@@ -131,7 +132,7 @@ fn main() -> anyhow::Result<()> {
 
                 if (*settings_guard).has_wifi_creds() && (*settings_guard).has_dexcom_creds() {
                     server.stop();
-                    lamp.set_color(LedState::Breathe(WHITE));
+                    lamp.set_color(LedState::Steady(WHITE));
                     app_state = AppState::ConnectWifi;
                 }
             }
@@ -140,20 +141,26 @@ fn main() -> anyhow::Result<()> {
                 let settings_guard = store.settings();
                 let settings_guard = settings_guard.lock().unwrap();
 
-                // TODO: If connection fails too many times, open in AP mode?
-                connect_wifi(
+                match connect_wifi(
                     &mut wifi,
                     &(*settings_guard).ap_ssid.as_ref().unwrap(),
                     &(*settings_guard).ap_pass.as_ref().unwrap(),
-                )?;
-
-                core::mem::drop(settings_guard);
-
-                // Start the http server
-                server.start().unwrap();
-
-                // Advance to next state
-                app_state = AppState::GetSession;
+                ) {
+                    Ok(_) => {
+                        // Start the http server
+                        core::mem::drop(settings_guard);
+                        info!("Wifi connected, starting web interface");
+                        server.start().unwrap();
+                        app_state = AppState::GetSession;
+                    },
+                    Err(_) => {
+                        // If connection fails too many times, open in AP mode
+                        info!("Couldn't connect to wifi, launching AP mode for AP credentials");
+                        core::mem::drop(settings_guard);
+                        store.reset();
+                        app_state = AppState::PresentAp;
+                    }
+                }
             }
             AppState::GetSession => {
                 let settings_guard = store.settings();
@@ -175,6 +182,7 @@ fn main() -> anyhow::Result<()> {
                 let settings_guard = settings_guard.lock().unwrap();
 
                 if !(*settings_guard).has_wifi_creds() || !(*settings_guard).has_dexcom_creds() {
+                    server.stop();
                     app_state = AppState::PresentAp;
                 } else if now > (last_query + QUERY_INTERVAL) {
                     // Update last
@@ -184,7 +192,7 @@ fn main() -> anyhow::Result<()> {
 
                     // Are we still connected to wifi? If not, sending a request will crash the program
                     if !wifi.is_connected().unwrap() {
-                        // TODO: causes a crash eventually
+                        // TODO: Not enough to prevent a crash when radio -> init
                         info!("Not connected to wifi, reconnecting");
                         server.stop();
                         app_state = AppState::ConnectWifi;
@@ -196,7 +204,7 @@ fn main() -> anyhow::Result<()> {
                             lamp.set_color(LedState::from_glucose(measurement.value));
                             no_measurement_count = 0;
                         } else if no_measurement_count >= 600 {
-                            lamp.set_color(LedState::Breathe(YELLOW));
+                            lamp.set_color(LedState::Steady(WHITE));
                         }
                     }
                 }
@@ -207,6 +215,7 @@ fn main() -> anyhow::Result<()> {
         FreeRtos::delay_ms(100);
     }
 }
+
 
 fn connect_wifi(
     wifi: &mut BlockingWifi<EspWifi<'static>>,
@@ -227,14 +236,20 @@ fn connect_wifi(
     wifi.start()?;
     info!("Wifi started, connecting to {}", ssid);
 
+    let mut tries = 0;
+
     loop {
         match wifi.connect() {
             Ok(_) => break,
             Err(e) => {
-                info!("Error connecting to WIFI: ({}). retrying", e.to_string());
-                continue;
+                if tries > MAX_TRY_COUNT {
+                    anyhow::bail!("Number of wifi connection attempts exceets limit: {}", tries);
+                } else {
+                    info!("Error connecting to WIFI: ({}). retrying", e.to_string());
+                }
             }
         };
+        tries += 1;
     }
     info!("Wifi connected");
 
