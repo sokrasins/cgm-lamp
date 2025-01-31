@@ -129,6 +129,22 @@ pub mod settings {
             self.save_to_flash().unwrap();
         }
 
+        pub fn reset_wifi_creds(&mut self) {
+            let mut settings = self.settings.lock().unwrap();
+            (*settings).ap_ssid = None;
+            (*settings).ap_pass = None;
+            std::mem::drop(settings);
+            self.save_to_flash().unwrap();
+        }
+
+        pub fn reset_dexcom_creds(&mut self) {
+            let mut settings = self.settings.lock().unwrap();
+            (*settings).dexcom_user = None;
+            (*settings).dexcom_pass = None;
+            std::mem::drop(settings);
+            self.save_to_flash().unwrap();
+        }
+
         pub fn check_updates(&mut self) {
             if let Ok(change) = self.rx_channel.try_recv() {
                 info!("Update found: {:?}", change);

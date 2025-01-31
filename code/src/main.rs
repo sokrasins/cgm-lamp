@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
-use cgmlamp::lamp::lamp::{LedState, WHITE, YELLOW};
+use cgmlamp::lamp::lamp::{LedState, WHITE};
 use cgmlamp::server::server::Server;
 use cgmlamp::settings::settings::{Observer, SettingsAction, Store};
 use cgmlamp::storage::storage::Storage;
@@ -152,12 +152,12 @@ fn main() -> anyhow::Result<()> {
                         info!("Wifi connected, starting web interface");
                         server.start().unwrap();
                         app_state = AppState::GetSession;
-                    },
+                    }
                     Err(_) => {
                         // If connection fails too many times, open in AP mode
                         info!("Couldn't connect to wifi, launching AP mode for AP credentials");
                         core::mem::drop(settings_guard);
-                        store.reset();
+                        store.reset_wifi_creds();
                         app_state = AppState::PresentAp;
                     }
                 }
@@ -216,7 +216,6 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-
 fn connect_wifi(
     wifi: &mut BlockingWifi<EspWifi<'static>>,
     ssid: &str,
@@ -243,7 +242,10 @@ fn connect_wifi(
             Ok(_) => break,
             Err(e) => {
                 if tries > MAX_TRY_COUNT {
-                    anyhow::bail!("Number of wifi connection attempts exceets limit: {}", tries);
+                    anyhow::bail!(
+                        "Number of wifi connection attempts exceets limit: {}",
+                        tries
+                    );
                 } else {
                     info!("Error connecting to WIFI: ({}). retrying", e.to_string());
                 }
