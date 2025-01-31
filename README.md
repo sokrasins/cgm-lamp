@@ -16,7 +16,7 @@ An ESP32-C6-powered device to indicate glucose as a color
 - Non-volatile storage of critical device settings
   - ✅ Store mission-critical device settings
   - At-rest encryption
-- AP Mode when device can't connect or has no credentials
+- ✅ AP Mode when device can't connect or has no credentials
 - REST API for automated control of device settings
   - ✅ Home Assistant compatible
   - TLS

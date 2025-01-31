@@ -2,7 +2,9 @@ use core::convert::TryInto;
 
 use log::info;
 
-use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
+use embedded_svc::wifi::{
+    AccessPointConfiguration, AuthMethod, ClientConfiguration, Configuration,
+};
 use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
 use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
@@ -13,25 +15,14 @@ use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE, YELLOW};
 use cgmlamp::server::server::Server;
-use cgmlamp::settings::settings::{Observer, Store};
+use cgmlamp::settings::settings::{Observer, SettingsAction, Store};
 use cgmlamp::storage::storage::Storage;
-
-// Credentials stored in config file
-#[toml_cfg::toml_config]
-pub struct Config {
-    #[default(" ")]
-    wifi_ssid: &'static str,
-    #[default(" ")]
-    wifi_pass: &'static str,
-    #[default(" ")]
-    dexcom_user: &'static str,
-    #[default(" ")]
-    dexcom_pass: &'static str,
-}
 
 // Application state machine states
 enum AppState {
     Boot,
+    PresentAp,
+    WaitForConfig,
     ConnectWifi,
     GetSession,
     DisplayGlucose,
@@ -63,7 +54,7 @@ fn main() -> anyhow::Result<()> {
         let settings = storage.recall().unwrap();
 
         // Take flash settings into current state
-        tx_channel.send(settings).unwrap();
+        tx_channel.send(SettingsAction::Modify(settings)).unwrap();
         store.check_updates();
     }
 
@@ -105,6 +96,11 @@ fn main() -> anyhow::Result<()> {
             let settings = settings.lock().unwrap();
             lamp.update(&settings);
             storage.update(&settings);
+
+            // If credentials were lost at some point then ask for new ones via AP
+            //if !settings.has_wifi_creds() || !settings.has_dexcom_creds() {
+            //    app_state = AppState::PresentAp;
+            //}
         }
 
         match app_state {
@@ -113,11 +109,34 @@ fn main() -> anyhow::Result<()> {
                 lamp.set_color(LedState::Breathe(WHITE));
 
                 // Advance to next state
-                app_state = AppState::ConnectWifi;
+                app_state = AppState::PresentAp;
+            }
+            AppState::PresentAp => {
+                let settings_guard = store.settings();
+                let settings_guard = settings_guard.lock().unwrap();
+
+                if (*settings_guard).has_wifi_creds() && (*settings_guard).has_dexcom_creds() {
+                    app_state = AppState::ConnectWifi;
+                } else {
+                    info!("Not enough credentials, starting AP mode");
+                    launch_ap(&mut wifi)?;
+                    server.start().unwrap();
+                    lamp.set_color(LedState::Steady(WHITE));
+                    app_state = AppState::WaitForConfig;
+                }
+            }
+            AppState::WaitForConfig => {
+                let settings_guard = store.settings();
+                let settings_guard = settings_guard.lock().unwrap();
+
+                if (*settings_guard).has_wifi_creds() && (*settings_guard).has_dexcom_creds() {
+                    server.stop();
+                    lamp.set_color(LedState::Breathe(WHITE));
+                    app_state = AppState::ConnectWifi;
+                }
             }
             AppState::ConnectWifi => {
                 // Set up wifi, connect to AP
-                // TODO: Check for wifi credentials
                 let settings_guard = store.settings();
                 let settings_guard = settings_guard.lock().unwrap();
 
@@ -137,7 +156,6 @@ fn main() -> anyhow::Result<()> {
                 app_state = AppState::GetSession;
             }
             AppState::GetSession => {
-                // TODO: Check for dexcom credentials
                 let settings_guard = store.settings();
                 let settings_guard = settings_guard.lock().unwrap();
 
@@ -153,7 +171,12 @@ fn main() -> anyhow::Result<()> {
                 app_state = AppState::DisplayGlucose;
             }
             AppState::DisplayGlucose => {
-                if now > (last_query + QUERY_INTERVAL) {
+                let settings_guard = store.settings();
+                let settings_guard = settings_guard.lock().unwrap();
+
+                if !(*settings_guard).has_wifi_creds() || !(*settings_guard).has_dexcom_creds() {
+                    app_state = AppState::PresentAp;
+                } else if now > (last_query + QUERY_INTERVAL) {
                     // Update last
                     info!("{}: getting latest glucose", now);
                     last_query = now;
@@ -161,7 +184,9 @@ fn main() -> anyhow::Result<()> {
 
                     // Are we still connected to wifi? If not, sending a request will crash the program
                     if !wifi.is_connected().unwrap() {
+                        // TODO: causes a crash eventually
                         info!("Not connected to wifi, reconnecting");
+                        server.stop();
                         app_state = AppState::ConnectWifi;
                     } else {
                         // Get new reading
@@ -212,6 +237,26 @@ fn connect_wifi(
         };
     }
     info!("Wifi connected");
+
+    wifi.wait_netif_up()?;
+    info!("Wifi netif up");
+
+    Ok(())
+}
+
+fn launch_ap(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
+    let ssid = "CGM-Lamp";
+    let wifi_configuration: Configuration = Configuration::AccessPoint(AccessPointConfiguration {
+        ssid: ssid.try_into().unwrap(),
+        auth_method: AuthMethod::None,
+        channel: 11,
+        ..Default::default()
+    });
+
+    wifi.set_configuration(&wifi_configuration)?;
+
+    wifi.start()?;
+    info!("Wifi started, setting up ssid {}", ssid);
 
     wifi.wait_netif_up()?;
     info!("Wifi netif up");

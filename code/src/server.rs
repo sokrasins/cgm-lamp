@@ -1,5 +1,5 @@
 pub mod server {
-    use crate::settings::settings::{AppSettings, Store};
+    use crate::settings::settings::{AppSettings, SettingsAction, Store};
     use embedded_svc::{
         http::{Headers, Method},
         io::{Read, Write},
@@ -21,10 +21,11 @@ pub mod server {
     const API_VER: &str = "v1";
     const API_STATE: &str = "state";
     const API_SET: &str = "set";
+    const API_RESET: &str = "reset";
 
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
-        tx_channel: Sender<AppSettings>,
+        tx_channel: Sender<SettingsAction>,
         settings: Arc<Mutex<AppSettings>>,
     }
 
@@ -45,7 +46,6 @@ pub mod server {
             };
 
             // Clone tx_channel to give it to the server handler
-            let tx = self.tx_channel.clone();
             let settings: Arc<Mutex<AppSettings>> = Arc::clone(&self.settings);
 
             self.server = Some(EspHttpServer::new(&server_configuration).unwrap());
@@ -60,42 +60,44 @@ pub mod server {
                         .map(|_| ())
                 })?;
 
-            info!("/{}/{}", API_VER, API_STATE);
             // Listener: Handle new settings from the web app
-            self.server
-                .as_mut()
-                .unwrap()
-                .fn_handler::<anyhow::Error, _>(
-                    &format!("/{}/{}", API_VER, API_SET),
-                    Method::Post,
-                    move |mut req| {
-                        let len = req.content_len().unwrap_or(0) as usize;
+            {
+                let tx = self.tx_channel.clone();
+                self.server
+                    .as_mut()
+                    .unwrap()
+                    .fn_handler::<anyhow::Error, _>(
+                        &format!("/api/{}/{}", API_VER, API_SET),
+                        Method::Post,
+                        move |mut req| {
+                            let len = req.content_len().unwrap_or(0) as usize;
 
-                        if len > MAX_LEN {
-                            req.into_status_response(413)?
-                                .write_all("Request too big".as_bytes())?;
-                            return Ok(());
-                        }
+                            if len > MAX_LEN {
+                                req.into_status_response(413)?
+                                    .write_all("Request too big".as_bytes())?;
+                                return Ok(());
+                            }
 
-                        let mut buf = vec![0; len];
-                        req.read_exact(&mut buf)?;
-                        let mut resp = req.into_ok_response()?;
+                            let mut buf = vec![0; len];
+                            req.read_exact(&mut buf)?;
+                            let mut resp = req.into_ok_response()?;
 
-                        if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
-                            info!("Got new settings: {:?}", form);
-                            tx.send(form).unwrap();
-                            write!(resp, "New settings applied")?;
-                        } else {
-                            resp.write_all("JSON error".as_bytes())?;
-                        }
+                            if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
+                                info!("Got new settings: {:?}", form);
+                                tx.send(SettingsAction::Modify(form)).unwrap();
+                                write!(resp, "New settings applied")?;
+                            } else {
+                                resp.write_all("JSON error".as_bytes())?;
+                            }
 
-                        Ok(())
-                    },
-                )?;
+                            Ok(())
+                        },
+                    )?;
+            }
 
             // Listener: Serve the device's status when on request
             self.server.as_mut().unwrap().fn_handler(
-                &format!("/{}/{}", API_VER, API_STATE),
+                &format!("/api/{}/{}", API_VER, API_STATE),
                 Method::Get,
                 move |req| {
                     info!("Get request on /state!");
@@ -117,7 +119,32 @@ pub mod server {
                 },
             )?;
 
+            // Listener: Handle new settings from the web app
+            {
+                let tx = self.tx_channel.clone();
+                self.server
+                    .as_mut()
+                    .unwrap()
+                    .fn_handler::<anyhow::Error, _>(
+                        &format!("/api/{}/{}", API_VER, API_RESET),
+                        Method::Post,
+                        move |req| {
+                            let mut resp = req.into_ok_response()?;
+
+                            tx.send(SettingsAction::Reset).unwrap();
+                            info!("Resetting");
+                            write!(resp, "All settings reset")?;
+
+                            Ok(())
+                        },
+                    )?;
+            }
+
             Ok(())
+        }
+
+        pub fn stop(&mut self) {
+            self.server = None
         }
     }
 }

@@ -18,8 +18,8 @@ pub mod settings {
     pub struct Store<'a> {
         settings: Arc<Mutex<AppSettings>>,
         observers: Vec<&'a dyn Observer>,
-        rx_channel: Receiver<AppSettings>,
-        tx_channel: Sender<AppSettings>,
+        rx_channel: Receiver<SettingsAction>,
+        tx_channel: Sender<SettingsAction>,
     }
 
     #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -68,11 +68,31 @@ pub mod settings {
 
             return changed;
         }
+
+        pub fn has_wifi_creds(&self) -> bool {
+            if self.ap_ssid.as_ref().and(self.ap_pass.as_ref()) == None {
+                return false;
+            }
+            true
+        }
+
+        pub fn has_dexcom_creds(&self) -> bool {
+            if self.dexcom_user.as_ref().and(self.dexcom_pass.as_ref()) == None {
+                return false;
+            }
+            true
+        }
+    }
+
+    #[derive(Debug)]
+    pub enum SettingsAction {
+        Modify(AppSettings),
+        Reset,
     }
 
     impl<'a> Store<'a> {
         pub fn new() -> Store<'a> {
-            let (tx_channel, rx_channel) = mpsc::channel::<AppSettings>();
+            let (tx_channel, rx_channel) = mpsc::channel::<SettingsAction>();
             Store {
                 settings: Arc::new(Mutex::new(AppSettings::new())),
                 observers: Vec::new(),
@@ -102,10 +122,20 @@ pub mod settings {
             self.notify_observers();
         }
 
+        pub fn reset(&mut self) {
+            let mut settings = self.settings.lock().unwrap();
+            *settings = AppSettings::new();
+            std::mem::drop(settings);
+            self.save_to_flash().unwrap();
+        }
+
         pub fn check_updates(&mut self) {
-            if let Ok(settings) = self.rx_channel.try_recv() {
-                info!("Update found: {:?}", settings);
-                self.modify(&settings);
+            if let Ok(change) = self.rx_channel.try_recv() {
+                info!("Update found: {:?}", change);
+                match change {
+                    SettingsAction::Modify(settings) => self.modify(&settings),
+                    SettingsAction::Reset => self.reset(),
+                }
             }
         }
 
@@ -113,7 +143,7 @@ pub mod settings {
             Arc::clone(&self.settings)
         }
 
-        pub fn tx_channel(&self) -> Sender<AppSettings> {
+        pub fn tx_channel(&self) -> Sender<SettingsAction> {
             self.tx_channel.clone()
         }
     }

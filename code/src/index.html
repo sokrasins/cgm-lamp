@@ -46,6 +46,11 @@ To change the configuration for you lamp, enter the changes here and click "subm
 <input type="submit" value="Submit">
 </form>
 
+<form id="reset-all" action="" method="post" accept-charset="utf-8">
+<h2>Factory Reset</h2>
+<input type="submit" value="Reset">
+</form>
+
 <p id="server-resp"></p>
 <script type="text/javascript">
 
@@ -56,10 +61,12 @@ const removeEmptyValues = (object) =>
   )
 
 let theForm = document.getElementById("app-settings");
+let resetAll = document.getElementById("reset-all");
 let serverResp = document.getElementById("server-resp");
 
-const api_state = "v1/state"
-const api_set = "v1/set"
+const api_state = "api/v1/state"
+const api_set = "api/v1/set"
+const api_reset = "api/v1/reset"
 
 const send_settings = async () => {
   let form = document.getElementById("app-settings");
@@ -89,6 +96,25 @@ const send_settings_submit = async (e) => {
 }
 
 theForm.addEventListener("submit", send_settings_submit);
+
+resetAll.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  let form = document.getElementById("reset-all");
+  let url = window.location.href + api_reset;
+
+  try {
+      let resp = await fetch(url, {
+          method: "POST",
+          headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+          },
+      });
+      serverResp.innerText = await resp.text();
+  } catch (err) {
+      console.error(err);
+  }
+});
 
 document.getElementById("brightness").onchange = send_settings;
 
