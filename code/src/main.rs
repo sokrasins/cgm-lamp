@@ -7,6 +7,7 @@ use embedded_svc::wifi::{
 };
 use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
 use esp_idf_svc::log::EspLogger;
+use esp_idf_svc::mdns::EspMdns;
 use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -122,7 +123,18 @@ fn main() -> anyhow::Result<()> {
             }
             AppState::PresentAp => {
                 launch_ap(&mut wifi)?;
+
+                let mut mdns = EspMdns::take().unwrap();
+                mdns.set_hostname("cgm-lamp").unwrap();
+                mdns.set_instance_name("Glucose Monitoring Lamp").unwrap();
+                mdns.add_service(None, "_http", "_tcp", 80, &[("", "")])
+                    .unwrap();
+                mdns.set_service_instance_name("_http", "_tcp", "Glucose Monitoring Lamp")
+                    .unwrap();
+                core::mem::forget(mdns);
+
                 server.start().unwrap();
+
                 lamp.set_color(LedState::Breathe(WHITE));
                 app_state = AppState::WaitForConfig;
             }
@@ -243,7 +255,7 @@ fn connect_wifi(
             Err(e) => {
                 if tries > MAX_TRY_COUNT {
                     anyhow::bail!(
-                        "Number of wifi connection attempts exceets limit: {}",
+                        "Number of wifi connection attempts exceeds limit: {}",
                         tries
                     );
                 } else {
@@ -278,5 +290,12 @@ fn launch_ap(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
     wifi.wait_netif_up()?;
     info!("Wifi netif up");
 
+    /*let mut mdns = EspMdns::take().unwrap();
+    mdns.set_hostname("cgm-lamp").unwrap();
+    mdns.set_instance_name("Glucose Monitoring Lamp").unwrap();
+    mdns.add_service(None, "_http", "_tcp", 80, &[("", "")])
+        .unwrap();
+    mdns.set_service_instance_name("_http", "_tcp", "Glucose Monitoring Lamp")
+        .unwrap();*/
     Ok(())
 }
