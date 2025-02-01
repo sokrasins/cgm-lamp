@@ -1,16 +1,9 @@
-use core::convert::TryInto;
-
 use log::info;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use embedded_svc::wifi::{
-    AccessPointConfiguration, AuthMethod, ClientConfiguration, Configuration,
-};
 use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
 use esp_idf_svc::log::EspLogger;
-use esp_idf_svc::mdns::EspMdns;
-use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
@@ -18,6 +11,7 @@ use cgmlamp::lamp::lamp::{LedState, WHITE};
 use cgmlamp::server::server::Server;
 use cgmlamp::settings::settings::{Observer, SettingsAction, Store};
 use cgmlamp::storage::storage::Storage;
+use cgmlamp::wifi::wifi::Wifi;
 
 // Application state machine states
 enum AppState {
@@ -28,8 +22,6 @@ enum AppState {
     GetSession,
     DisplayGlucose,
 }
-
-const MAX_TRY_COUNT: usize = 3;
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -46,6 +38,7 @@ fn main() -> anyhow::Result<()> {
 
     // Application state
     let mut store = Store::new();
+    // TODO: Move inside store
     let mut storage = Storage::new(&nvs);
 
     // Load the hard-coded credentials into the store
@@ -73,10 +66,7 @@ fn main() -> anyhow::Result<()> {
     let mut lamp = Lamp::new();
     lamp.start(peripherals.pins.gpio8, peripherals.rmt.channel0)?;
 
-    let mut wifi = BlockingWifi::wrap(
-        EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
-        sys_loop,
-    )?;
+    let mut wifi = Wifi::new(peripherals.modem, &sys_loop, &nvs).unwrap();
 
     let mut server = Server::new(&store);
     let mut last_query: u64 = 0;
@@ -99,11 +89,6 @@ fn main() -> anyhow::Result<()> {
             let settings = settings.lock().unwrap();
             lamp.update(&settings);
             storage.update(&settings);
-
-            // If credentials were lost at some point then ask for new ones via AP
-            //if !settings.has_wifi_creds() || !settings.has_dexcom_creds() {
-            //    app_state = AppState::PresentAp;
-            //}
         }
 
         match app_state {
@@ -122,16 +107,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             AppState::PresentAp => {
-                launch_ap(&mut wifi)?;
-
-                let mut mdns = EspMdns::take().unwrap();
-                mdns.set_hostname("cgm-lamp").unwrap();
-                mdns.set_instance_name("Glucose Monitoring Lamp").unwrap();
-                mdns.add_service(None, "_http", "_tcp", 80, &[("", "")])
-                    .unwrap();
-                mdns.set_service_instance_name("_http", "_tcp", "Glucose Monitoring Lamp")
-                    .unwrap();
-                core::mem::forget(mdns);
+                wifi.start_ap().unwrap();
 
                 server.start().unwrap();
 
@@ -153,8 +129,7 @@ fn main() -> anyhow::Result<()> {
                 let settings_guard = store.settings();
                 let settings_guard = settings_guard.lock().unwrap();
 
-                match connect_wifi(
-                    &mut wifi,
+                match wifi.start_sta(
                     &(*settings_guard).ap_ssid.as_ref().unwrap(),
                     &(*settings_guard).ap_pass.as_ref().unwrap(),
                 ) {
@@ -203,7 +178,7 @@ fn main() -> anyhow::Result<()> {
                     no_measurement_count += 1;
 
                     // Are we still connected to wifi? If not, sending a request will crash the program
-                    if !wifi.is_connected().unwrap() {
+                    if !wifi.is_connected() {
                         // TODO: Not enough to prevent a crash when radio -> init
                         info!("Not connected to wifi, reconnecting");
                         server.stop();
@@ -226,76 +201,4 @@ fn main() -> anyhow::Result<()> {
         // 100 ms delay to let rtos do some work
         FreeRtos::delay_ms(100);
     }
-}
-
-fn connect_wifi(
-    wifi: &mut BlockingWifi<EspWifi<'static>>,
-    ssid: &str,
-    pass: &str,
-) -> anyhow::Result<()> {
-    let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
-        ssid: ssid.try_into().unwrap(),
-        bssid: None,
-        auth_method: AuthMethod::WPA2Personal,
-        password: pass.try_into().unwrap(),
-        channel: None,
-        ..Default::default()
-    });
-
-    wifi.set_configuration(&wifi_configuration)?;
-
-    wifi.start()?;
-    info!("Wifi started, connecting to {}", ssid);
-
-    let mut tries = 0;
-
-    loop {
-        match wifi.connect() {
-            Ok(_) => break,
-            Err(e) => {
-                if tries > MAX_TRY_COUNT {
-                    anyhow::bail!(
-                        "Number of wifi connection attempts exceeds limit: {}",
-                        tries
-                    );
-                } else {
-                    info!("Error connecting to WIFI: ({}). retrying", e.to_string());
-                }
-            }
-        };
-        tries += 1;
-    }
-    info!("Wifi connected");
-
-    wifi.wait_netif_up()?;
-    info!("Wifi netif up");
-
-    Ok(())
-}
-
-fn launch_ap(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
-    let ssid = "CGM-Lamp";
-    let wifi_configuration: Configuration = Configuration::AccessPoint(AccessPointConfiguration {
-        ssid: ssid.try_into().unwrap(),
-        auth_method: AuthMethod::None,
-        channel: 11,
-        ..Default::default()
-    });
-
-    wifi.set_configuration(&wifi_configuration)?;
-
-    wifi.start()?;
-    info!("Wifi started, setting up ssid {}", ssid);
-
-    wifi.wait_netif_up()?;
-    info!("Wifi netif up");
-
-    /*let mut mdns = EspMdns::take().unwrap();
-    mdns.set_hostname("cgm-lamp").unwrap();
-    mdns.set_instance_name("Glucose Monitoring Lamp").unwrap();
-    mdns.add_service(None, "_http", "_tcp", 80, &[("", "")])
-        .unwrap();
-    mdns.set_service_instance_name("_http", "_tcp", "Glucose Monitoring Lamp")
-        .unwrap();*/
-    Ok(())
 }
