@@ -217,9 +217,9 @@ pub mod dexcom {
                     let time: i64 = reading.wt[start_bytes..end_bytes]
                         .to_string()
                         .parse()
-                        .unwrap(); //parse::<isize>().unwrap();
+                        .unwrap();
                     GlucoseReading {
-                        time, // TODO: wt, st, or dt?
+                        time,
                         value: reading.value,
                         trend: GlucoseTrend::from_str(&reading.trend),
                     }
