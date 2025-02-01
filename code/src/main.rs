@@ -51,7 +51,6 @@ fn main() -> anyhow::Result<()> {
 
         // Take flash settings into current state
         tx_channel.send(SettingsAction::Modify(settings)).unwrap();
-        store.check_updates();
     }
 
     // App state
@@ -60,15 +59,14 @@ fn main() -> anyhow::Result<()> {
     // Create dexcom object
     let mut dexcom = Dexcom::new();
 
-    // Monitor glucose
-    let mut no_measurement_count = 0;
-
     let mut lamp = Lamp::new();
     lamp.start(peripherals.pins.gpio8, peripherals.rmt.channel0)?;
 
     let mut wifi = Wifi::new(peripherals.modem, &sys_loop, &nvs).unwrap();
 
     let mut server = Server::new(&store);
+
+    let mut no_measurement_count = 0;
     let mut last_query: u64 = 0;
     const QUERY_INTERVAL: u64 = 20;
 
@@ -159,6 +157,8 @@ fn main() -> anyhow::Result<()> {
                         &(*settings_guard).dexcom_pass.as_ref().unwrap(),
                     )
                     .unwrap();
+
+                // TODO: Check for valid dexcom credentials
 
                 core::mem::drop(settings_guard);
 

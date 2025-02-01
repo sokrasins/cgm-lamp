@@ -13,6 +13,7 @@ pub mod wifi {
 
     const MAX_TRY_COUNT: usize = 3;
     const AP_SSID: &str = "CGM-LAMP";
+    const MDNS_HOSTNAME: &str = "cgmlamp";
 
     pub struct Wifi<'a> {
         wifi: BlockingWifi<EspWifi<'a>>,
@@ -32,7 +33,7 @@ pub mod wifi {
             )?;
 
             let mut mdns = EspMdns::take().unwrap();
-            mdns.set_hostname("cgm-lamp").unwrap();
+            mdns.set_hostname(MDNS_HOSTNAME).unwrap();
             mdns.set_instance_name("Glucose Monitoring Lamp").unwrap();
             mdns.add_service(None, "_http", "_tcp", 80, &[("", "")])
                 .unwrap();
@@ -77,7 +78,10 @@ pub mod wifi {
             }
 
             self.wifi.wait_netif_up()?;
-            info!("Wifi connected");
+            info!(
+                "Wifi connected, available on {}",
+                format!("{}.local", MDNS_HOSTNAME)
+            );
 
             Ok(())
         }
@@ -98,7 +102,11 @@ pub mod wifi {
             self.wifi.set_configuration(&wifi_configuration)?;
             self.wifi.start()?;
             self.wifi.wait_netif_up()?;
-            info!("Wifi started, ssid {}", AP_SSID);
+            info!(
+                "Wifi started, ssid {}, available on {}",
+                AP_SSID,
+                format!("{}.local", MDNS_HOSTNAME)
+            );
 
             Ok(())
         }
