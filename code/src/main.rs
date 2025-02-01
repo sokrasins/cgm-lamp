@@ -9,8 +9,7 @@ use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE};
 use cgmlamp::server::server::Server;
-use cgmlamp::settings::settings::{Observer, SettingsAction, Store};
-use cgmlamp::storage::storage::Storage;
+use cgmlamp::settings::settings::{Observer, Store};
 use cgmlamp::wifi::wifi::Wifi;
 
 // Application state machine states
@@ -37,21 +36,8 @@ fn main() -> anyhow::Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
 
     // Application state
-    let mut store = Store::new();
-    // TODO: Move inside store
-    let mut storage = Storage::new(&nvs);
-
-    // Load the hard-coded credentials into the store
-    {
-        // Get a transmit channel for settings, just for this scope
-        let tx_channel = store.tx_channel();
-
-        // Get settings stored in flash
-        let settings = storage.recall().unwrap();
-
-        // Take flash settings into current state
-        tx_channel.send(SettingsAction::Modify(settings)).unwrap();
-    }
+    let mut store = Store::new(&nvs);
+    store.load_from_flash();
 
     // App state
     let mut app_state = AppState::Boot;
@@ -86,7 +72,6 @@ fn main() -> anyhow::Result<()> {
             let settings = store.settings();
             let settings = settings.lock().unwrap();
             lamp.update(&settings);
-            storage.update(&settings);
         }
 
         match app_state {
@@ -129,7 +114,7 @@ fn main() -> anyhow::Result<()> {
 
                 match wifi.start_sta(
                     &(*settings_guard).ap_ssid.as_ref().unwrap(),
-                    &(*settings_guard).ap_pass.as_ref().unwrap(),
+                    &(*settings_guard).ap_psk.as_ref().unwrap(),
                 ) {
                     Ok(_) => {
                         // Start the http server

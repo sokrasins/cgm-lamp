@@ -4,6 +4,8 @@ pub mod settings {
     use std::sync::mpsc;
     use std::sync::mpsc::{Receiver, Sender};
     use std::sync::{Arc, Mutex};
+    use crate::storage::storage::Storage;
+    use esp_idf_svc::nvs::{EspNvsPartition, NvsDefault};
 
     pub trait Observer {
         fn update(&mut self, state: &AppSettings) -> bool;
@@ -15,30 +17,23 @@ pub mod settings {
         fn notify_observers(&self);
     }
 
-    pub struct Store<'a> {
-        settings: Arc<Mutex<AppSettings>>,
-        observers: Vec<&'a dyn Observer>,
-        rx_channel: Receiver<SettingsAction>,
-        tx_channel: Sender<SettingsAction>,
-    }
-
     #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
     pub struct AppSettings {
         pub ap_ssid: Option<String>,
-        pub ap_pass: Option<String>,
+        pub ap_psk: Option<String>,
         pub dexcom_user: Option<String>,
         pub dexcom_pass: Option<String>,
-        pub lamp_brightness: Option<f32>,
+        pub brightness: Option<u8>,
     }
 
     impl AppSettings {
         pub fn new() -> Self {
             AppSettings {
                 ap_ssid: None,
-                ap_pass: None,
+                ap_psk: None,
                 dexcom_user: None,
                 dexcom_pass: None,
-                lamp_brightness: Some(0.25),
+                brightness: Some(64),
             }
         }
 
@@ -49,8 +44,8 @@ pub mod settings {
                 self.ap_ssid = Some(ap_ssid.to_owned());
                 changed = true;
             }
-            if let Some(ap_pass) = &delta.ap_pass {
-                self.ap_pass = Some(ap_pass.to_owned());
+            if let Some(ap_psk) = &delta.ap_psk {
+                self.ap_psk = Some(ap_psk.to_owned());
                 changed = true;
             }
             if let Some(dexcom_user) = &delta.dexcom_user {
@@ -61,8 +56,8 @@ pub mod settings {
                 self.dexcom_pass = Some(dexcom_pass.to_owned());
                 changed = true;
             }
-            if let Some(lamp_brightness) = &delta.lamp_brightness {
-                self.lamp_brightness = Some(*lamp_brightness);
+            if let Some(brightness) = &delta.brightness {
+                self.brightness = Some(*brightness);
                 changed = true;
             }
 
@@ -70,7 +65,7 @@ pub mod settings {
         }
 
         pub fn has_wifi_creds(&self) -> bool {
-            if self.ap_ssid.as_ref().and(self.ap_pass.as_ref()) == None {
+            if self.ap_ssid.as_ref().and(self.ap_psk.as_ref()) == None {
                 return false;
             }
             true
@@ -90,51 +85,65 @@ pub mod settings {
         Reset,
     }
 
+    pub struct Store<'a> {
+        settings: Arc<Mutex<AppSettings>>,
+        observers: Vec<&'a dyn Observer>,
+        storage: Storage,
+        rx_channel: Receiver<SettingsAction>,
+        tx_channel: Sender<SettingsAction>,
+    }
+
     impl<'a> Store<'a> {
-        pub fn new() -> Store<'a> {
+        pub fn new(nvs_part: &EspNvsPartition<NvsDefault>) -> Store<'a> {
             let (tx_channel, rx_channel) = mpsc::channel::<SettingsAction>();
+            let storage = Storage::new(nvs_part);
             Store {
                 settings: Arc::new(Mutex::new(AppSettings::new())),
                 observers: Vec::new(),
+                storage,
                 rx_channel,
                 tx_channel,
             }
         }
 
-        // TODO: add NVS
-        pub fn load_from_flash(&mut self) -> anyhow::Result<()> {
-            Ok(())
+        pub fn load_from_flash(&mut self) {
+            let settings = self.storage.recall().unwrap();
+            self.modify(&settings);
         }
 
-        // TODO: add NVS
-        pub fn save_to_flash(&self) -> anyhow::Result<()> {
-            Ok(())
+        pub fn save_to_flash(&mut self) {
+            let settings_lock = self.settings.lock().unwrap();
+            self.storage.store(&settings_lock).unwrap();
         }
 
         pub fn modify(&mut self, delta: &AppSettings) {
-            let mut settings = self.settings.lock().unwrap();
-            if (*settings).merge(delta) {
-                self.save_to_flash().unwrap();
-            };
-            std::mem::drop(settings);
+            {
+                let mut settings = self.settings.lock().unwrap();
+                let change_made = (*settings).merge(delta);
+                std::mem::drop(settings);
+
+                if change_made {
+                    self.save_to_flash();
+                }
+            }
 
             // Trigger on_change callbacks
-            self.notify_observers();
+            //self.notify_observers();
         }
 
         pub fn reset(&mut self) {
             let mut settings = self.settings.lock().unwrap();
             *settings = AppSettings::new();
             std::mem::drop(settings);
-            self.save_to_flash().unwrap();
+            self.save_to_flash();
         }
 
         pub fn reset_wifi_creds(&mut self) {
             let mut settings = self.settings.lock().unwrap();
             (*settings).ap_ssid = None;
-            (*settings).ap_pass = None;
+            (*settings).ap_psk = None;
             std::mem::drop(settings);
-            self.save_to_flash().unwrap();
+            self.save_to_flash();
         }
 
         pub fn reset_dexcom_creds(&mut self) {
@@ -142,7 +151,7 @@ pub mod settings {
             (*settings).dexcom_user = None;
             (*settings).dexcom_pass = None;
             std::mem::drop(settings);
-            self.save_to_flash().unwrap();
+            self.save_to_flash();
         }
 
         pub fn check_updates(&mut self) {

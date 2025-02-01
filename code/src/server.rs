@@ -106,7 +106,7 @@ pub mod server {
                     let state_guard = settings.lock().unwrap();
                     let mut state = (*state_guard).clone();
                     std::mem::drop(state_guard);
-                    state.ap_pass = None;
+                    state.ap_psk = None;
                     state.dexcom_pass = None;
 
                     info!("{:?}", state);

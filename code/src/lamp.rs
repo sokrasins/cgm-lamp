@@ -174,16 +174,16 @@ pub mod lamp {
             *state = color;
         }
 
-        pub fn set_brightness(&self, brightness: f32) {
+        pub fn set_brightness(&self, brightness: u8) {
             let mut self_brightness = self.brightness.lock().unwrap();
-            *self_brightness = brightness;
+            *self_brightness = (brightness as f32) / 255.0;
         }
     }
 
     impl Observer for Lamp {
         fn update(&mut self, state: &AppSettings) -> bool {
             let mut ret = false;
-            if let Some(brightness) = state.lamp_brightness {
+            if let Some(brightness) = state.brightness {
                 self.set_brightness(brightness);
                 ret = true;
             }

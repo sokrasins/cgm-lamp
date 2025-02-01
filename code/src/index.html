@@ -29,13 +29,13 @@ To change the configuration for you lamp, enter the changes here and click "subm
 <form id="app-settings" action="" method="post" accept-charset="utf-8">
 <h2>Device Settings</h2>
 <label for="brightness">Lamp Brightness</label>
-<input type="range" min="0.0" max="1.0" value="0.25" step="0.0001" class="slider" id="brightness" name="lamp_brightness">
+<input type="range" min="0" max="255" value="64" step="1" class="slider" id="brightness" name="brightness">
 
 <h2>Wifi Credentials</h2>
 <label for="ap-name">Wifi Name:</label>
-<input type="text" id="ap-name" name="ap_ssid" placeholder="Enter wifi name"><br>
-<label for="ap-pass">Wifi Password:</label>
-<input type="password" id="ap-pass" name="ap_pass" placeholder="Enter wifi password"><br>
+<input type="text" id="ap-ssid" name="ap_ssid" placeholder="Enter wifi name"><br>
+<label for="ap-psk">Wifi Password:</label>
+<input type="password" id="ap-psk" name="ap_psk" placeholder="Enter wifi password"><br>
 
 <h2>Dexcom Credentials</h2>
 <label for="dexcom-name">Dexcom User:</label>
@@ -74,7 +74,7 @@ const send_settings = async () => {
 
   try {
       let entries = Object.fromEntries(new FormData(form).entries());
-      entries["lamp_brightness"] = parseFloat(entries["lamp_brightness"]);
+      entries["brightness"] = parseInt(entries["brightness"]);
       entries = removeEmptyValues(entries)
       let resp = await fetch(url, {
           method: "POST",
@@ -134,8 +134,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       body = await resp.json();
 
     // Get form elements
-    const ap_ssid = document.getElementById('ap-name');
-    const ap_pass = document.getElementById('ap-pass');
+    const ap_ssid = document.getElementById('ap-ssid');
+    const ap_psk = document.getElementById('ap-psk');
     const dexcom_user = document.getElementById('dexcom-name');
     const dexcom_pass = document.getElementById('dexcom-pass');
     const lamp_brightness = document.getElementById('brightness');
@@ -146,9 +146,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       ap_ssid.value = body.ap_ssid;
     }
 
-    if (body.ap_pass !== null)
+    if (body.ap_psk !== null)
     {
-      ap_pass.value = body.ap_pass;
+      ap_psk.value = body.ap_psk;
     }
 
     if (body.dexcom_user !== null)
@@ -161,9 +161,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       dexcom_pass.value = body.dexcom_pass;
     }
 
-    if (body.lamp_brightness !== null)
+    if (body.brightness !== null)
     {
-      lamp_brightness.value = body.lamp_brightness;
+      lamp_brightness.value = body.brightness;
     }
 
   } catch (err) {
