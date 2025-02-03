@@ -6,9 +6,9 @@ pub mod server {
     };
     use esp_idf_svc::http::server::EspHttpServer;
     use log::info;
+    use serde::{Deserialize, Serialize};
     use std::sync::mpsc::Sender;
     use std::sync::{Arc, Mutex};
-    //use std::time::{SystemTime, UNIX_EPOCH};
 
     static INDEX_HTML: &str = include_str!("index.html");
 
@@ -22,6 +22,41 @@ pub mod server {
     const API_STATE: &str = "state";
     const API_SET: &str = "set";
     const API_RESET: &str = "reset";
+
+    #[derive(Debug, Deserialize, Serialize)]
+    struct StateRsp {
+        brightness: u8,
+        on: bool,
+        cred_store: String,
+        ap_ssid_stored: bool,
+        ap_psk_stored: bool,
+        dexcom_user_stored: bool,
+        dexcom_pass_stored: bool,
+        bat_attached: bool,
+        bat_charging: bool,
+        bat_capacity: u8,
+        uptime: u64,
+        temp: i16,
+    }
+
+    impl StateRsp {
+        pub fn new() -> Self {
+            Self {
+                brightness: 0,
+                on: false,
+                cred_store: "".to_string(),
+                ap_ssid_stored: false,
+                ap_psk_stored: false,
+                dexcom_user_stored: false,
+                dexcom_pass_stored: false,
+                bat_attached: false,
+                bat_charging: false,
+                bat_capacity: 0,
+                uptime: 0,
+                temp: 0,
+            }
+        }
+    }
 
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
@@ -102,17 +137,24 @@ pub mod server {
                 move |req| {
                     info!("Get request on /state!");
 
+                    let mut state_rsp = StateRsp::new();
+
                     // Acquire lock on sapp state
                     let state_guard = settings.lock().unwrap();
-                    let mut state = (*state_guard).clone();
+                    let state = (*state_guard).clone();
                     std::mem::drop(state_guard);
-                    state.ap_psk = None;
-                    state.dexcom_pass = None;
 
-                    info!("{:?}", state);
+                    state_rsp.brightness = state.brightness.unwrap();
+                    state_rsp.on = true;
+                    state_rsp.ap_ssid_stored = state.ap_ssid.is_some();
+                    state_rsp.ap_psk_stored = state.ap_psk.is_some();
+                    state_rsp.dexcom_user_stored = state.dexcom_user.is_some();
+                    state_rsp.dexcom_pass_stored = state.dexcom_pass.is_some();
+
+                    info!("{:?}", state_rsp);
 
                     // Serialize, send back to web app
-                    let state_ser = serde_json::to_string(&state).unwrap();
+                    let state_ser = serde_json::to_string(&state_rsp).unwrap();
                     req.into_ok_response()?
                         .write_all(state_ser.as_bytes())
                         .map(|_| ())

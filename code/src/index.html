@@ -142,24 +142,40 @@ document.addEventListener("DOMContentLoaded", async () => {
     const lamp_brightness = document.getElementById('brightness');
 
     // If we got valid data for a field, set it
-    if (body.ap_ssid !== null)
+    if (body.ap_ssid_stored)
     {
-      ap_ssid.value = body.ap_ssid;
+      ap_ssid.placeholder = "Wifi network already stored"
+    }
+    else
+    {
+      ap_ssid.placeholder = "Enter wifi name"
     }
 
-    if (body.ap_psk !== null)
+    if (body.ap_psk_stored)
     {
-      ap_psk.value = body.ap_psk;
+      ap_psk.placeholder = "Wifi password already stored"
+    }
+    else
+    {
+      ap_psk.placeholder = "Enter wifi password"
     }
 
-    if (body.dexcom_user !== null)
+    if (body.dexcom_user_stored)
     {
-      dexcom_user.value = body.dexcom_user;
+      dexcom_user.placeholder = "Dexcom username already stored"
+    }
+    else
+    {
+      dexcom_user.placeholder = "Enter Dexcom username"
     }
 
-    if (body.dexcom_pass !== null)
+    if (body.dexcom_pass_stored)
     {
-      dexcom_pass.value = body.dexcom_pass;
+      dexcom_pass.placeholder = "Dexcom password already stored"
+    }
+    else
+    {
+      dexcom_pass.placeholder = "Enter Dexcom password"
     }
 
     if (body.brightness !== null)
