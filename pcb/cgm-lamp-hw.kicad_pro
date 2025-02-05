@@ -62,10 +62,7 @@
         "hole_clearance|111745000|106950000|9e1e63da-7290-494c-8b65-9d51ae49188a|c67efeff-f847-4927-b930-066aee5ba3ee",
         "hole_clearance|111745000|106950000|9e1e63da-7290-494c-8b65-9d51ae49188a|d160cdbd-eaac-4ccf-8490-941f5b147e6f",
         "hole_clearance|111745000|113050000|d13aa88a-773c-48e4-960a-8d5f4d6866fd|ca56bd5f-0953-4876-9055-19653638a52c",
-        "hole_clearance|111745000|113050000|d13aa88a-773c-48e4-960a-8d5f4d6866fd|f0411a01-2080-455e-abfc-a0efe769cdb8",
-        "unconnected_items|111895000|105680000|15deb413-69fe-4ec4-b2cb-9646fe7c5149|9b9ec344-410a-4b02-a103-90a91ff0068f",
-        "unconnected_items|111895000|114320000|9b9ec344-410a-4b02-a103-90a91ff0068f|9db27a84-4a41-4566-a0fe-8e626abd58e6",
-        "unconnected_items|116075000|105680000|5413d45a-98f1-4e6a-887a-9b69b57ab7ac|15deb413-69fe-4ec4-b2cb-9646fe7c5149"
+        "hole_clearance|111745000|113050000|d13aa88a-773c-48e4-960a-8d5f4d6866fd|f0411a01-2080-455e-abfc-a0efe769cdb8"
       ],
       "meta": {
         "version": 2
@@ -474,9 +471,9 @@
         "name": "Default",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.4,
-        "via_diameter": 0.8,
-        "via_drill": 0.4,
+        "track_width": 0.2,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
         "wire_width": 6
       }
     ],
