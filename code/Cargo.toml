@@ -34,6 +34,7 @@ rgb = "0.8.50"
 esp-idf-hal = { version = "=0.45.2", features = ["rmt-legacy"] }
 rgb-led = { path = "./lib/rgb-led" }
 postcard = "1.1.1"
+axum = "0.8.1"
 #cc = "=1.2.7"
 
 [build-dependencies]

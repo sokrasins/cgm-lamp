@@ -9,10 +9,10 @@ pub mod server {
     use serde::{Deserialize, Serialize};
     use std::sync::mpsc::Sender;
     use std::sync::{Arc, Mutex};
+    use axum::{response::Html, routing::get, Router};
 
-    static INDEX_HTML: &str = include_str!("index.html");
-
-    const STACK_SIZE: usize = 10240;
+    //static INDEX_HTML: &str = include_str!("index.html");
+    //const STACK_SIZE: usize = 10240;
 
     // Need lots of stack to parse JSON
     // Max payload length
@@ -64,6 +64,10 @@ pub mod server {
         settings: Arc<Mutex<AppSettings>>,
     }
 
+    async fn handler() -> Html<&'static str> {
+        Html("<h1>Hello, World!</h1>")
+    }
+
     impl<'a> Server<'a> {
         pub fn new(store: &Store) -> Self {
             Server {
@@ -74,7 +78,14 @@ pub mod server {
         }
 
         // Start server listeners
-        pub fn start(&mut self) -> anyhow::Result<()> {
+        pub async fn start(&mut self) {
+            let app = Router::new().route("/", get(handler));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+                .await
+                .unwrap();
+            info!("Listening on {}", listener.local_addr().unwwrap());
+            axum::serve(listener, app).awat.unwrap();
+            /*
             let server_configuration = esp_idf_svc::http::server::Configuration {
                 stack_size: STACK_SIZE,
                 ..Default::default()
@@ -183,6 +194,7 @@ pub mod server {
             }
 
             Ok(())
+            */
         }
 
         pub fn stop(&mut self) {
