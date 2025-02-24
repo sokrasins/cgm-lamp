@@ -34,3 +34,7 @@ An ESP32-C6-powered device to indicate glucose as a color
   - Amnesia
   - Password-protected
   - Permissive
+
+## BOM
+
+[BOM](pcb/bom/ibom.html)
