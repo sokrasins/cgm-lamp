@@ -6,7 +6,7 @@
 	(paper "A4")
 	(title_block
 		(title "CGM Lamp")
-		(rev "1")
+		(rev "2")
 	)
 	(lib_symbols
 		(symbol "Connector:Conn_01x03_Socket"
@@ -5168,7 +5168,7 @@
 	)
 	(wire
 		(pts
-			(xy 148.59 96.52) (xy 157.48 96.52)
+			(xy 148.59 99.06) (xy 157.48 99.06)
 		)
 		(stroke
 			(width 0)
@@ -5268,7 +5268,7 @@
 	)
 	(wire
 		(pts
-			(xy 148.59 99.06) (xy 157.48 99.06)
+			(xy 148.59 101.6) (xy 157.48 101.6)
 		)
 		(stroke
 			(width 0)
@@ -6888,7 +6888,7 @@
 	)
 	(wire
 		(pts
-			(xy 148.59 101.6) (xy 157.48 101.6)
+			(xy 148.59 96.52) (xy 157.48 96.52)
 		)
 		(stroke
 			(width 0)
@@ -7316,6 +7316,17 @@
 		)
 		(uuid "bf973c84-ebf6-4ee7-94aa-c562341a7aec")
 	)
+	(text "TODO: Check reassignment\n"
+		(exclude_from_sim no)
+		(at 147.574 102.87 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+				(color 255 0 255 1)
+			)
+		)
+		(uuid "c3aef977-293a-4a36-8bc4-19b2b038a9e6")
+	)
 	(text "App"
 		(exclude_from_sim no)
 		(at 165.1 196.596 0)
@@ -7432,7 +7443,7 @@
 		(uuid "196a5d78-8958-4334-a6e9-e21bd7f2f033")
 	)
 	(label "ENC_BTN"
-		(at 157.48 101.6 180)
+		(at 157.48 96.52 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7454,7 +7465,7 @@
 		(uuid "1ee45ab6-c540-4d7f-a7d2-4b055ae09837")
 	)
 	(label "D+"
-		(at 157.48 99.06 180)
+		(at 157.48 101.6 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7707,7 +7718,7 @@
 		(uuid "d8df46cf-fdec-40ed-8a32-6aa9d0cb7a1b")
 	)
 	(label "D-"
-		(at 157.48 96.52 180)
+		(at 157.48 99.06 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
