@@ -107,7 +107,10 @@ pub mod settings {
         }
 
         pub fn load_from_flash(&mut self) {
-            let settings = self.storage.recall().unwrap();
+            let settings = match self.storage.recall() {
+                Ok(nvs_settings) => nvs_settings,
+                Err(_) => AppSettings::new(),
+            };
             self.modify(&settings);
         }
 
