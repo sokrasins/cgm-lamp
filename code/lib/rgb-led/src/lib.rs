@@ -10,6 +10,7 @@ pub use rgb::RGB8;
 
 pub struct WS2812RMT<'a> {
     tx_rtm_driver: TxRmtDriver<'a>,
+    num: usize,
 }
 
 impl<'d> WS2812RMT<'d> {
@@ -17,10 +18,11 @@ impl<'d> WS2812RMT<'d> {
     pub fn new(
         led: impl Peripheral<P = impl OutputPin> + 'd,
         channel: impl Peripheral<P = impl RmtChannel> + 'd,
+        num: usize
     ) -> Result<Self> {
         let config = TransmitConfig::new().clock_divider(2);
         let tx = TxRmtDriver::new(channel, led, &config)?;
-        Ok(Self { tx_rtm_driver: tx })
+        Ok(Self { tx_rtm_driver: tx, num })
     }
 
     pub fn set_pixel(&mut self, rgb: RGB8) -> Result<()> {
@@ -30,17 +32,21 @@ impl<'d> WS2812RMT<'d> {
         let t0l = Pulse::new_with_duration(ticks_hz, PinState::Low, &ns(800))?;
         let t1h = Pulse::new_with_duration(ticks_hz, PinState::High, &ns(700))?;
         let t1l = Pulse::new_with_duration(ticks_hz, PinState::Low, &ns(600))?;
-        let mut signal = FixedLengthSignal::<24>::new();
-        for i in (0..24).rev() {
-            let p = 2_u32.pow(i);
-            let bit = p & color != 0;
-            let (high_pulse, low_pulse) = if bit { (t1h, t1l) } else { (t0h, t0l) };
-            signal.set(23 - i as usize, &(high_pulse, low_pulse))?;
+        let mut signal = FixedLengthSignal::<192>::new();
+        for j in 0..8
+        {
+            for i in (0..24).rev() {
+                let p = 2_u32.pow(i);
+                let bit = p & color != 0;
+                let (high_pulse, low_pulse) = if bit { (t1h, t1l) } else { (t0h, t0l) };
+                signal.set(24*j+(23 - i) as usize, &(high_pulse, low_pulse))?;
+            }
         }
         self.tx_rtm_driver.start_blocking(&signal)?;
 
         Ok(())
     }
+
 }
 
 fn ns(nanos: u64) -> Duration {
