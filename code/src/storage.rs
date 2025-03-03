@@ -38,14 +38,20 @@ pub mod storage {
             let key_raw_struct: &str = "settings";
             let key_raw_struct_data: &mut [u8] = &mut [0; 1024];
 
-            let settings_bytes = self
+            let settings_bytes_result = self
                 .nvs
                 .get_raw(key_raw_struct, key_raw_struct_data)
-                .unwrap()
                 .unwrap();
 
-            let settings = serde_json::from_slice::<AppSettings>(settings_bytes).unwrap();
-            Ok(settings)
+            match settings_bytes_result {
+                Some(bytes) => {
+                    let settings = serde_json::from_slice::<AppSettings>(bytes).unwrap();
+                    return Ok(settings);
+                },
+                None => {
+                    Err(anyhow::anyhow!("No settings found"))
+                }
+            }
         }
     }
 
