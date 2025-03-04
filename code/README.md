@@ -62,3 +62,12 @@ NOTE: I don't seem to be able to define multiple REST methods on a single API en
 
 No body required for this endpoint - performs a factory reset, restoring default
 settings to device.
+
+## To Do
+
+- Battery charge state needs more logic
+  - Is usb connected?
+- Re-implement lamp breathe, with faster response
+- Change server for something with TLS
+- Show power state in web UI
+- Better encoder control over lamp
