@@ -193,6 +193,13 @@ fn main() -> anyhow::Result<()> {
                     server.stop();
                     app_state = AppState::PresentAp;
                 } else if now > (last_query + QUERY_INTERVAL) {
+                    let soc = sensor.soc().unwrap();
+                    let voltage = sensor.voltage().unwrap();
+                    let charge_rate = sensor.charge_rate().unwrap();
+                    info!("Charge: {:.2}%", soc);
+                    info!("Charge Rate: {:.2}%", charge_rate);
+                    info!("Voltage: {:.2}V", voltage);
+
                     // Update last
                     info!("{}: getting latest glucose", now);
                     last_query = now;
