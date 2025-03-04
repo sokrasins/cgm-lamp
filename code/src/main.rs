@@ -9,6 +9,8 @@ use esp_idf_hal::i2c::*;
 use esp_idf_hal::prelude::*;
 use max170xx::Max17048;
 
+use esp_idf_hal::gpio::PinDriver;
+
 use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE};
@@ -41,6 +43,15 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
 
+    // GPIO Alerts
+    let bat_charge_pin = PinDriver::input(peripherals.pins.gpio4)?;
+    let mut indicator_pin = PinDriver::output(peripherals.pins.gpio5)?;
+    // encoder button
+    // fuel gauge alert
+
+    // Show the ESP has started
+    indicator_pin.set_high()?;
+
     // Application state
     let mut store = Store::new(&nvs);
     store.load_from_flash();
@@ -67,20 +78,13 @@ fn main() -> anyhow::Result<()> {
     let encoder = Encoder::new(peripherals.pcnt0, &mut pin_a, &mut pin_b)?;
     let mut last_value = 0u8;
 
-    info!("Starting I2C SSD1306 test");
+    // Fuel Gauge
     let i2c = peripherals.i2c0;
     let sda = peripherals.pins.gpio6;
     let scl = peripherals.pins.gpio7;
-
     let config = I2cConfig::new().baudrate(100.kHz().into());
     let i2c = I2cDriver::new(i2c, sda, scl, &config)?;
     let mut sensor = Max17048::new(i2c);
-    let soc = sensor.soc().unwrap();
-    let voltage = sensor.voltage().unwrap();
-    let charge_rate = sensor.charge_rate().unwrap();
-    info!("Charge: {:.2}%", soc);
-    info!("Charge Rate: {:.2}%", charge_rate);
-    info!("Voltage: {:.2}V", voltage);
 
     loop {
         // Get time now. Adding the interval will make the first measurement
@@ -199,6 +203,7 @@ fn main() -> anyhow::Result<()> {
                     info!("Charge: {:.2}%", soc);
                     info!("Charge Rate: {:.2}%", charge_rate);
                     info!("Voltage: {:.2}V", voltage);
+                    info!("Battery charging: {}", bat_charge_pin.is_high());
 
                     // Update last
                     info!("{}: getting latest glucose", now);

@@ -8,7 +8,7 @@ An ESP32-C6-powered device to indicate glucose as a color
 ## Features
 
 - ✅ Displays glucose via lamp color
-- Max brightness settable by rotating lamp body
+- ✅ Max brightness settable by rotating lamp body
 - ✅ Device configuration through web server
   - ✅ Wifi credentials
   - ✅ Dexcom credentials
@@ -34,15 +34,3 @@ An ESP32-C6-powered device to indicate glucose as a color
   - Amnesia
   - Password-protected
   - Permissive
-
-## BOM
-
-[BOM](pcb/bom/ibom.html)
-
-## Things to do
-
-- pcb v1 - fix usb D+ and D-, move encoder button pin
-- pcb v1 - Add current measurement header
-- pcb v1 - Move buttons away from board edge
-- pcb v1 - Smaller power switch
-- pcb v1 - Better silk screen, with functional button labels
