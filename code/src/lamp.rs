@@ -123,7 +123,7 @@ pub mod lamp {
             self.timer = Some(EspTaskTimerService::new()?);
             self.cb_timer = Some({
                 let lock = Arc::clone(&self.state);
-                let mut ws2812 = WS2812RMT::new(led, channel).unwrap();
+                let mut ws2812 = WS2812RMT::new(led, channel, 8).unwrap();
                 let brightness = Arc::clone(&self.brightness);
 
                 self.timer.clone().unwrap().timer(move || {
