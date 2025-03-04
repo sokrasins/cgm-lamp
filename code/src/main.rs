@@ -9,8 +9,10 @@ use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE};
 use cgmlamp::server::server::Server;
-use cgmlamp::settings::settings::{Observer, Store};
+use cgmlamp::settings::settings::{Observer, Store, AppSettings};
 use cgmlamp::wifi::wifi::Wifi;
+
+use cgmlamp::encoder::encoder::Encoder;
 
 // Application state machine states
 enum AppState {
@@ -55,7 +57,13 @@ fn main() -> anyhow::Result<()> {
     let mut no_measurement_count = 0;
     let mut last_query: u64 = 0;
     const QUERY_INTERVAL: u64 = 20;
-
+ 
+    // Set up encoder
+    let mut pin_a = peripherals.pins.gpio18;
+    let mut pin_b = peripherals.pins.gpio19;
+    let encoder = Encoder::new(peripherals.pcnt0, &mut pin_a, &mut pin_b)?;
+    let mut last_value = 0u8;
+ 
     loop {
         // Get time now. Adding the interval will make the first measurement
         // happen immediately.
@@ -72,6 +80,17 @@ fn main() -> anyhow::Result<()> {
             let settings = store.settings();
             let settings = settings.lock().unwrap();
             lamp.update(&settings);
+        }
+
+
+        // Show encoder updates
+        let value = encoder.get_value()?;
+        if value != last_value {
+            info!("encoder value: {value}");
+            last_value = value;
+            let mut bright = AppSettings::new();
+            bright.brightness = Some(value);
+            store.modify(&bright);
         }
 
         match app_state {
