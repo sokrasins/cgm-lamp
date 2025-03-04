@@ -9,7 +9,7 @@ use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE};
 use cgmlamp::server::server::Server;
-use cgmlamp::settings::settings::{Observer, Store, AppSettings};
+use cgmlamp::settings::settings::{AppSettings, Observer, Store};
 use cgmlamp::wifi::wifi::Wifi;
 
 use cgmlamp::encoder::encoder::Encoder;
@@ -47,8 +47,7 @@ fn main() -> anyhow::Result<()> {
     // Create dexcom object
     let mut dexcom = Dexcom::new();
 
-    let mut lamp = Lamp::new();
-    lamp.start(peripherals.pins.gpio8, peripherals.rmt.channel0)?;
+    let mut lamp = Lamp::new(peripherals.pins.gpio8, peripherals.rmt.channel0);
 
     let mut wifi = Wifi::new(peripherals.modem, &sys_loop, &nvs).unwrap();
 
@@ -57,13 +56,13 @@ fn main() -> anyhow::Result<()> {
     let mut no_measurement_count = 0;
     let mut last_query: u64 = 0;
     const QUERY_INTERVAL: u64 = 20;
- 
+
     // Set up encoder
     let mut pin_a = peripherals.pins.gpio18;
     let mut pin_b = peripherals.pins.gpio19;
     let encoder = Encoder::new(peripherals.pcnt0, &mut pin_a, &mut pin_b)?;
     let mut last_value = 0u8;
- 
+
     loop {
         // Get time now. Adding the interval will make the first measurement
         // happen immediately.
@@ -81,7 +80,6 @@ fn main() -> anyhow::Result<()> {
             let settings = settings.lock().unwrap();
             lamp.update(&settings);
         }
-
 
         // Show encoder updates
         let value = encoder.get_value()?;

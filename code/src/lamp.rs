@@ -1,11 +1,7 @@
 pub mod lamp {
     use crate::settings::settings::{AppSettings, Observer};
-    use core::time::Duration;
     use esp_idf_hal::{gpio::OutputPin, peripheral::Peripheral, rmt::RmtChannel};
-    use esp_idf_svc::hal::delay::FreeRtos;
-    use esp_idf_svc::timer::{EspTaskTimerService, EspTimer, EspTimerService, Task};
     use rgb_led::{RGB8, WS2812RMT};
-    use std::sync::{Arc, Mutex};
 
     pub const COLOR_MAX: u8 = 255;
 
@@ -86,11 +82,10 @@ pub mod lamp {
         )
     }
 
-    pub struct Lamp {
-        state: Arc<Mutex<LedState>>,
-        timer: Option<EspTimerService<Task>>,
-        cb_timer: Option<EspTimer<'static>>,
-        brightness: Arc<Mutex<f32>>,
+    pub struct Lamp<'a> {
+        state: LedState,
+        brightness: f32,
+        led: WS2812RMT<'a>,
     }
 
     pub fn set_bright(color: &RGB8, brightness: f32) -> RGB8 {
@@ -101,86 +96,48 @@ pub mod lamp {
         }
     }
 
-    impl Lamp {
-        pub fn new() -> Self {
-            let lock = Arc::new(Mutex::new(LedState::Off));
-            let brightness = Arc::new(Mutex::new(0.25));
+    impl<'a> Lamp<'a> {
+        pub fn new(
+            led: impl Peripheral<P = impl OutputPin> + 'static,
+            channel: impl Peripheral<P = impl RmtChannel> + 'static,
+        ) -> Self {
+            let state = LedState::Off;
+            let brightness = 0.25;
+            let led = WS2812RMT::new(led, channel).unwrap();
 
             Lamp {
-                state: lock,
-                timer: None,
-                cb_timer: None,
+                state,
                 brightness,
+                led,
             }
         }
 
-        pub fn start(
-            &mut self,
-            led: impl Peripheral<P = impl OutputPin> + 'static,
-            channel: impl Peripheral<P = impl RmtChannel> + 'static,
-        ) -> anyhow::Result<()> {
-            // LED-writing thread
-            self.timer = Some(EspTaskTimerService::new()?);
-            self.cb_timer = Some({
-                let lock = Arc::clone(&self.state);
-                let mut ws2812 = WS2812RMT::new(led, channel, 8).unwrap();
-                let brightness = Arc::clone(&self.brightness);
-
-                self.timer.clone().unwrap().timer(move || {
-                    let led = lock.lock().unwrap();
-                    let bright = brightness.lock().unwrap();
-                    match *led {
-                        LedState::Steady(color) => {
-                            ws2812.set_pixel(set_bright(&color, *bright)).unwrap()
-                        }
-                        LedState::Breathe(color) => {
-                            for i in 0..80 {
-                                ws2812
-                                    .set_pixel(get_color_in_sweep(
-                                        &set_bright(&color, *bright),
-                                        &BLACK,
-                                        80,
-                                        i,
-                                    ))
-                                    .unwrap();
-                                FreeRtos::delay_ms(10);
-                            }
-                            for i in 0..80 {
-                                ws2812
-                                    .set_pixel(get_color_in_sweep(
-                                        &BLACK,
-                                        &set_bright(&color, *bright),
-                                        80,
-                                        i,
-                                    ))
-                                    .unwrap();
-                                FreeRtos::delay_ms(10);
-                            }
-                        }
-                        LedState::Off => ws2812.set_pixel(BLACK).unwrap(),
-                    };
-                })?
-            });
-            self.cb_timer
-                .as_ref()
-                .unwrap()
-                .every(Duration::from_secs(2))?;
-
-            Ok(())
-        }
-
         pub fn set_color(&mut self, color: LedState) {
-            let mut state = self.state.lock().unwrap();
-            *state = color;
+            self.state = color;
+            self.set_led();
         }
 
-        pub fn set_brightness(&self, brightness: u8) {
-            let mut self_brightness = self.brightness.lock().unwrap();
-            *self_brightness = (brightness as f32) / 255.0;
+        pub fn set_brightness(&mut self, brightness: u8) {
+            self.brightness = (brightness as f32) / 255.0;
+            self.set_led();
+        }
+
+        fn set_led(&mut self) {
+            match self.state {
+                LedState::Steady(color) => self
+                    .led
+                    .set_pixel(set_bright(&color, self.brightness))
+                    .unwrap(),
+                LedState::Breathe(color) => self
+                    .led
+                    .set_pixel(set_bright(&color, self.brightness))
+                    .unwrap(),
+                LedState::Off => self.led.set_pixel(BLACK).unwrap(),
+            };
         }
     }
 
-    impl Observer for Lamp {
+    impl<'a> Observer for Lamp<'a> {
         fn update(&mut self, state: &AppSettings) -> bool {
             let mut ret = false;
             if let Some(brightness) = state.brightness {

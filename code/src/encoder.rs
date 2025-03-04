@@ -1,5 +1,4 @@
 pub mod encoder {
-    use std::cmp::min;
     use std::sync::atomic::AtomicI32;
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
@@ -93,11 +92,10 @@ pub mod encoder {
             if value < 0 {
                 value = 0;
             }
-            if value > 255{
+            if value > 255 {
                 value = 255;
             }
             Ok(value as u8)
         }
     }
 }
-
