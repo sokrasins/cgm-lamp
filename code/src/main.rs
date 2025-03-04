@@ -5,6 +5,10 @@ use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
 use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
 
+use esp_idf_hal::i2c::*;
+use esp_idf_hal::prelude::*;
+use max170xx::Max17048;
+
 use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE};
@@ -62,6 +66,21 @@ fn main() -> anyhow::Result<()> {
     let mut pin_b = peripherals.pins.gpio19;
     let encoder = Encoder::new(peripherals.pcnt0, &mut pin_a, &mut pin_b)?;
     let mut last_value = 0u8;
+
+    info!("Starting I2C SSD1306 test");
+    let i2c = peripherals.i2c0;
+    let sda = peripherals.pins.gpio6;
+    let scl = peripherals.pins.gpio7;
+
+    let config = I2cConfig::new().baudrate(100.kHz().into());
+    let i2c = I2cDriver::new(i2c, sda, scl, &config)?;
+    let mut sensor = Max17048::new(i2c);
+    let soc = sensor.soc().unwrap();
+    let voltage = sensor.voltage().unwrap();
+    let charge_rate = sensor.charge_rate().unwrap();
+    info!("Charge: {:.2}%", soc);
+    info!("Charge Rate: {:.2}%", charge_rate);
+    info!("Voltage: {:.2}V", voltage);
 
     loop {
         // Get time now. Adding the interval will make the first measurement
@@ -201,6 +220,6 @@ fn main() -> anyhow::Result<()> {
         };
 
         // 100 ms delay to let rtos do some work
-        FreeRtos::delay_ms(100);
+        FreeRtos::delay_ms(10);
     }
 }

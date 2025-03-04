@@ -35,6 +35,7 @@ esp-idf-hal = { version = "=0.45.2", features = ["rmt-legacy"] }
 rgb-led = { path = "./lib/rgb-led" }
 postcard = "1.1.1"
 rotary-encoder-embedded = "0.4.0"
+max170xx = "1.0.0"
 #cc = "=1.2.7"
 
 [build-dependencies]
