@@ -86,16 +86,10 @@ pub mod encoder {
             Ok(Self { unit, approx_value })
         }
 
-        pub fn get_value(&self) -> Result<u8, EspError> {
-            let mut value =
+        pub fn get_value(&self) -> Result<i32, EspError> {
+            let value =
                 self.approx_value.load(Ordering::Relaxed) + self.unit.get_counter_value()? as i32;
-            if value < 13 {
-                value = 0;
-            }
-            if value > 255 {
-                value = 255;
-            }
-            Ok(value as u8)
+            Ok(value)
         }
     }
 }

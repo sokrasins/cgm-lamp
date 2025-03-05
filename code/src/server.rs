@@ -119,7 +119,7 @@ pub mod server {
 
                             if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
                                 info!("Got new settings: {:?}", form);
-                                tx.send(SettingsAction::Modify(form)).unwrap();
+                                tx.send(SettingsAction::Set(form)).unwrap();
                                 write!(resp, "New settings applied")?;
                             } else {
                                 resp.write_all("JSON error".as_bytes())?;
