@@ -1,11 +1,11 @@
 pub mod settings {
+    use crate::storage::storage::Storage;
+    use esp_idf_svc::nvs::{EspNvsPartition, NvsDefault};
     use log::info;
     use serde::{Deserialize, Serialize};
     use std::sync::mpsc;
     use std::sync::mpsc::{Receiver, Sender};
     use std::sync::{Arc, Mutex};
-    use crate::storage::storage::Storage;
-    use esp_idf_svc::nvs::{EspNvsPartition, NvsDefault};
 
     pub trait Observer {
         fn update(&mut self, state: &AppSettings) -> bool;
@@ -24,6 +24,11 @@ pub mod settings {
         pub dexcom_user: Option<String>,
         pub dexcom_pass: Option<String>,
         pub brightness: Option<u8>,
+    }
+
+    #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+    pub struct AppSettingsDiff {
+        pub brightness: Option<i32>,
     }
 
     impl AppSettings {
@@ -64,6 +69,27 @@ pub mod settings {
             return changed;
         }
 
+        pub fn modify(&mut self, delta: &AppSettingsDiff) -> bool {
+            let mut changed = false;
+            if let Some(bright) = &delta.brightness {
+                if let Some(cur_bright) = self.brightness {
+                    let mut new_brightness: i32 = (cur_bright as i32) + bright;
+                    if new_brightness > 255 {
+                        new_brightness = 255;
+                    }
+
+                    if new_brightness < 0 {
+                        new_brightness = 0;
+                    }
+
+                    self.brightness = Some(new_brightness as u8);
+                    changed = true;
+                }
+            }
+
+            return changed;
+        }
+
         pub fn has_wifi_creds(&self) -> bool {
             if self.ap_ssid.as_ref().and(self.ap_psk.as_ref()) == None {
                 return false;
@@ -79,9 +105,19 @@ pub mod settings {
         }
     }
 
+    impl AppSettingsDiff {
+        pub fn new() -> Self {
+            Self { brightness: None }
+        }
+
+        pub fn set_brightness_diff(&mut self, bright_change: i32) {
+            self.brightness = Some(bright_change);
+        }
+    }
+
     #[derive(Debug)]
     pub enum SettingsAction {
-        Modify(AppSettings),
+        Set(AppSettings),
         Reset,
     }
 
@@ -111,7 +147,7 @@ pub mod settings {
                 Ok(nvs_settings) => nvs_settings,
                 Err(_) => AppSettings::new(),
             };
-            self.modify(&settings);
+            self.set(&settings);
         }
 
         pub fn save_to_flash(&mut self) {
@@ -119,10 +155,25 @@ pub mod settings {
             self.storage.store(&settings_lock).unwrap();
         }
 
-        pub fn modify(&mut self, delta: &AppSettings) {
+        pub fn set(&mut self, delta: &AppSettings) {
             {
                 let mut settings = self.settings.lock().unwrap();
                 let change_made = (*settings).merge(delta);
+                std::mem::drop(settings);
+
+                if change_made {
+                    self.save_to_flash();
+                }
+            }
+
+            // Trigger on_change callbacks
+            //self.notify_observers();
+        }
+
+        pub fn modify(&mut self, delta: &AppSettingsDiff) {
+            {
+                let mut settings = self.settings.lock().unwrap();
+                let change_made = (*settings).modify(delta);
                 std::mem::drop(settings);
 
                 if change_made {
@@ -161,7 +212,7 @@ pub mod settings {
             if let Ok(change) = self.rx_channel.try_recv() {
                 info!("Update found: {:?}", change);
                 match change {
-                    SettingsAction::Modify(settings) => self.modify(&settings),
+                    SettingsAction::Set(settings) => self.set(&settings),
                     SettingsAction::Reset => self.reset(),
                 }
             }

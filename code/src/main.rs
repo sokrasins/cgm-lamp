@@ -15,10 +15,10 @@ use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE};
 use cgmlamp::server::server::Server;
-use cgmlamp::settings::settings::{AppSettings, Observer, Store};
+use cgmlamp::settings::settings::{AppSettingsDiff, Observer, Store};
 use cgmlamp::wifi::wifi::Wifi;
 
-use cgmlamp::encoder::encoder::Encoder;
+use cgmlamp::dimmer::dimmer::LightDimmer;
 
 // Application state machine states
 enum AppState {
@@ -75,8 +75,7 @@ fn main() -> anyhow::Result<()> {
     // Set up encoder
     let mut pin_a = peripherals.pins.gpio18;
     let mut pin_b = peripherals.pins.gpio19;
-    let encoder = Encoder::new(peripherals.pcnt0, &mut pin_a, &mut pin_b)?;
-    let mut last_value = 0u8;
+    let mut dimmer = LightDimmer::new(peripherals.pcnt0, &mut pin_a, &mut pin_b)?;
 
     // Fuel Gauge
     let i2c = peripherals.i2c0;
@@ -105,12 +104,11 @@ fn main() -> anyhow::Result<()> {
         }
 
         // Show encoder updates
-        let value = encoder.get_value()?;
-        if value != last_value {
-            info!("encoder value: {value}");
-            last_value = value;
-            let mut bright = AppSettings::new();
-            bright.brightness = Some(value);
+        let bright_change = dimmer.get_change();
+        if bright_change != 0 {
+            info!("change brightness by: {bright_change}");
+            let mut bright = AppSettingsDiff::new();
+            bright.set_brightness_diff(bright_change);
             store.modify(&bright);
         }
 

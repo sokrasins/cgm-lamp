@@ -16,3 +16,4 @@ The PCB for the CGM lamp
 - Better silk screen, with functional button labels
 - ESP pin for fuel gauge alert
 - Increase current capacity of power block
+- Low-voltage cut-off?
