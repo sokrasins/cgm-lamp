@@ -45,6 +45,7 @@ fn main() -> anyhow::Result<()> {
 
     // GPIO Alerts
     let bat_charge_pin = PinDriver::input(peripherals.pins.gpio4)?;
+    let enc_but = PinDriver::input(peripherals.pins.gpio11)?;
     let mut indicator_pin = PinDriver::output(peripherals.pins.gpio5)?;
     // encoder button
     // fuel gauge alert
@@ -85,6 +86,8 @@ fn main() -> anyhow::Result<()> {
     let i2c = I2cDriver::new(i2c, sda, scl, &config)?;
     let mut sensor = Max17048::new(i2c);
 
+    let mut last_button_state = true;
+
     loop {
         // Get time now. Adding the interval will make the first measurement
         // happen immediately.
@@ -110,6 +113,29 @@ fn main() -> anyhow::Result<()> {
             let mut bright = AppSettingsDiff::new();
             bright.set_brightness_diff(bright_change);
             store.modify(&bright);
+        }
+
+        let button_state = enc_but.is_high();
+        if last_button_state != button_state {
+            if button_state == false {
+                let mut bright = AppSettingsDiff::new();
+
+                // Closure to be explicit about lock lifetime
+                {
+                    let settings = store.settings();
+                    let settings = settings.lock().unwrap();
+
+                    if settings.brightness.is_some_and(|x| x == 0) {
+                        bright.set_brightness_diff(64);
+                        info!("Button pressed, turning light on");
+                    } else {
+                        bright.set_brightness_diff(-255);
+                        info!("Button pressed, turning light off");
+                    }
+                }
+                store.modify(&bright);
+            }
+            last_button_state = button_state;
         }
 
         match app_state {
