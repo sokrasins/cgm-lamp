@@ -17,3 +17,5 @@ The PCB for the CGM lamp
 - ESP pin for fuel gauge alert
 - Increase current capacity of power block
 - Low-voltage cut-off?
+- Don't need reset button?
+- Move USB so it's flush with housing
