@@ -85,6 +85,7 @@ pub mod lamp {
     pub struct Lamp<'a> {
         state: LedState,
         brightness: f32,
+        on: bool,
         led: WS2812RMT<'a>,
     }
 
@@ -109,6 +110,7 @@ pub mod lamp {
                 state,
                 brightness,
                 led,
+                on: true,
             }
         }
 
@@ -122,11 +124,26 @@ pub mod lamp {
             self.set_led();
         }
 
+        pub fn on(&mut self) {
+            self.on = true;
+        }
+
+        pub fn off(&mut self) {
+            self.on = false;
+        }
+
+        pub fn toggle(&mut self) {
+            self.on = !self.on;
+        }
+
         fn set_led(&mut self) {
             match self.state {
                 LedState::Steady(color) => self
                     .led
-                    .set_pixel(set_bright(&color, self.brightness))
+                    .set_pixel(set_bright(
+                        &color,
+                        self.brightness * (self.on as i32 as f32),
+                    ))
                     .unwrap(),
                 LedState::Breathe(color) => self
                     .led

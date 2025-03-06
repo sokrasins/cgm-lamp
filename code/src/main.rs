@@ -118,22 +118,8 @@ fn main() -> anyhow::Result<()> {
         let button_state = enc_but.is_high();
         if last_button_state != button_state {
             if button_state == false {
-                let mut bright = AppSettingsDiff::new();
-
-                // Closure to be explicit about lock lifetime
-                {
-                    let settings = store.settings();
-                    let settings = settings.lock().unwrap();
-
-                    if settings.brightness.is_some_and(|x| x == 0) {
-                        bright.set_brightness_diff(64);
-                        info!("Button pressed, turning light on");
-                    } else {
-                        bright.set_brightness_diff(-255);
-                        info!("Button pressed, turning light off");
-                    }
-                }
-                store.modify(&bright);
+                info!("Button pushed, toggling lamp");
+                lamp.toggle();
             }
             last_button_state = button_state;
         }
