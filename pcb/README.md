@@ -3,8 +3,7 @@
 The PCB for the CGM lamp
 
 ## BOM
-
-[IBOM](https://html-preview.github.io/?url=https://github.com/sokrasins/blob/main/cgm-lamp/pcb/bom/ibom.html)
+[IBOM](https://htmlpreview.github.io/?https://github.com/sokrasins/cgm-lamp/blob/main/pcb/bom/ibom.html)
 
 ## To Do
 
