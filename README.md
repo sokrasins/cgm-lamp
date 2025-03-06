@@ -4,6 +4,7 @@ An ESP32-C6-powered device to indicate glucose as a color
 
 - `/pcb` - KiCAD PCB design
 - `/code` - Rust firmware project
+- `/stl` - Models for the lamp housing
 
 ## Features
 
