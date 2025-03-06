@@ -4,7 +4,7 @@ The PCB for the CGM lamp
 
 ## BOM
 
-[BOM](pcb/bom/ibom.html)
+[BOM](bom/ibom.html)
 
 ## To Do
 
