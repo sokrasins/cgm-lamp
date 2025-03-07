@@ -1,4 +1,5 @@
 pub mod dexcom {
+    use crate::storage::storage::Storable;
     use embedded_svc::{http::client::Client, io::Write, utils::io};
     use esp_idf_svc::http::client::{Configuration as HttpConfiguration, EspHttpConnection};
     use log::{error, info};
@@ -102,6 +103,8 @@ pub mod dexcom {
         client: Client<EspHttpConnection>,
         user_id: String,
         session: String,
+        user_name: Option<String>,
+        user_pass: Option<String>,
     }
 
     impl Dexcom {
@@ -119,13 +122,30 @@ pub mod dexcom {
                 client,
                 user_id: "".to_string(),
                 session: "".to_string(),
+                user_name: None,
+                user_pass: None,
             }
         }
 
-        pub fn connect(&mut self, acct_name: &str, pass: &str) -> anyhow::Result<()> {
-            self.user_id = self.get_user_id(acct_name, pass).unwrap();
-            self.session = self.get_session(pass).unwrap();
-            Ok(())
+        pub fn has_creds(&self) -> bool {
+            if self.user_name == None {
+                return false;
+            }
+            if self.user_pass == None {
+                return false;
+            }
+
+            true
+        }
+
+        pub fn connect(&mut self) -> anyhow::Result<()> {
+            let uname = self.user_name.clone().unwrap();
+            let upass = self.user_pass.clone().unwrap();
+
+            self.user_id = self.get_user_id(&uname, &upass).unwrap();
+            self.session = self.get_session(&upass).unwrap();
+
+            return Ok(());
         }
 
         fn get_user_id(&mut self, acct_name: &str, pass: &str) -> anyhow::Result<String> {
@@ -263,6 +283,33 @@ pub mod dexcom {
             };
 
             Ok("".to_owned())
+        }
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct NvsDexcomState {
+        user_name: Option<String>,
+        user_pass: Option<String>,
+    }
+
+    impl Storable for Dexcom {
+        fn store_tag(&self) -> &str {
+            return &"dexcom_credentials";
+        }
+
+        fn store_data(&self) -> Vec<u8> {
+            let data = NvsDexcomState {
+                user_name: self.user_name.to_owned(),
+                user_pass: self.user_pass.to_owned(),
+            };
+
+            serde_json::to_string(&data).unwrap().into_bytes()
+        }
+
+        fn recall_data(&mut self, data: &[u8]) {
+            let nvs_state = serde_json::from_slice::<NvsDexcomState>(data).unwrap();
+            self.user_name = nvs_state.user_name;
+            self.user_pass = nvs_state.user_pass;
         }
     }
 }

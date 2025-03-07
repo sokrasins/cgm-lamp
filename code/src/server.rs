@@ -1,5 +1,4 @@
 pub mod server {
-    use crate::settings::settings::{AppSettings, SettingsAction, Store};
     use embedded_svc::{
         http::{Headers, Method},
         io::{Read, Write},
@@ -60,17 +59,11 @@ pub mod server {
 
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
-        tx_channel: Sender<SettingsAction>,
-        settings: Arc<Mutex<AppSettings>>,
     }
 
     impl<'a> Server<'a> {
-        pub fn new(store: &Store) -> Self {
-            Server {
-                server: None,
-                tx_channel: store.tx_channel(),
-                settings: store.settings(),
-            }
+        pub fn new() -> Self {
+            Server { server: None }
         }
 
         // Start server listeners

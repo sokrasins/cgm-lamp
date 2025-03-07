@@ -1,21 +1,9 @@
 pub mod settings {
-    use crate::storage::storage::Storage;
-    use esp_idf_svc::nvs::{EspNvsPartition, NvsDefault};
+    use crate::storage::storage::Storable;
     use log::info;
     use serde::{Deserialize, Serialize};
     use std::sync::mpsc;
     use std::sync::mpsc::{Receiver, Sender};
-    use std::sync::{Arc, Mutex};
-
-    pub trait Observer {
-        fn update(&mut self, state: &AppSettings) -> bool;
-    }
-
-    pub trait Subject<'a> {
-        fn attach(&mut self, observer: &'a dyn Observer);
-        fn detach(&mut self, observer: &'a dyn Observer);
-        fn notify_observers(&self);
-    }
 
     #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
     pub struct AppSettings {
@@ -23,12 +11,6 @@ pub mod settings {
         pub ap_psk: Option<String>,
         pub dexcom_user: Option<String>,
         pub dexcom_pass: Option<String>,
-        pub brightness: Option<u8>,
-    }
-
-    #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-    pub struct AppSettingsDiff {
-        pub brightness: Option<i32>,
     }
 
     impl AppSettings {
@@ -38,7 +20,6 @@ pub mod settings {
                 ap_psk: None,
                 dexcom_user: None,
                 dexcom_pass: None,
-                brightness: Some(64),
             }
         }
 
@@ -61,31 +42,6 @@ pub mod settings {
                 self.dexcom_pass = Some(dexcom_pass.to_owned());
                 changed = true;
             }
-            if let Some(brightness) = &delta.brightness {
-                self.brightness = Some(*brightness);
-                changed = true;
-            }
-
-            return changed;
-        }
-
-        pub fn modify(&mut self, delta: &AppSettingsDiff) -> bool {
-            let mut changed = false;
-            if let Some(bright) = &delta.brightness {
-                if let Some(cur_bright) = self.brightness {
-                    let mut new_brightness: i32 = (cur_bright as i32) + bright;
-                    if new_brightness > 255 {
-                        new_brightness = 255;
-                    }
-
-                    if new_brightness < 0 {
-                        new_brightness = 0;
-                    }
-
-                    self.brightness = Some(new_brightness as u8);
-                    changed = true;
-                }
-            }
 
             return changed;
         }
@@ -105,107 +61,44 @@ pub mod settings {
         }
     }
 
-    impl AppSettingsDiff {
-        pub fn new() -> Self {
-            Self { brightness: None }
-        }
-
-        pub fn set_brightness_diff(&mut self, bright_change: i32) {
-            self.brightness = Some(bright_change);
-        }
-    }
-
     #[derive(Debug)]
     pub enum SettingsAction {
         Set(AppSettings),
         Reset,
     }
 
-    pub struct Store<'a> {
-        settings: Arc<Mutex<AppSettings>>,
-        observers: Vec<&'a dyn Observer>,
-        storage: Storage,
+    pub struct Store {
+        settings: AppSettings,
         rx_channel: Receiver<SettingsAction>,
         tx_channel: Sender<SettingsAction>,
     }
 
-    impl<'a> Store<'a> {
-        pub fn new(nvs_part: &EspNvsPartition<NvsDefault>) -> Store<'a> {
+    impl Store {
+        pub fn new() -> Store {
             let (tx_channel, rx_channel) = mpsc::channel::<SettingsAction>();
-            let storage = Storage::new(nvs_part);
+
             Store {
-                settings: Arc::new(Mutex::new(AppSettings::new())),
-                observers: Vec::new(),
-                storage,
+                settings: AppSettings::new(),
                 rx_channel,
                 tx_channel,
             }
         }
 
-        pub fn load_from_flash(&mut self) {
-            let settings = match self.storage.recall() {
-                Ok(nvs_settings) => nvs_settings,
-                Err(_) => AppSettings::new(),
-            };
-            self.set(&settings);
-        }
-
-        pub fn save_to_flash(&mut self) {
-            let settings_lock = self.settings.lock().unwrap();
-            self.storage.store(&settings_lock).unwrap();
-        }
-
         pub fn set(&mut self, delta: &AppSettings) {
-            {
-                let mut settings = self.settings.lock().unwrap();
-                let change_made = (*settings).merge(delta);
-                std::mem::drop(settings);
-
-                if change_made {
-                    self.save_to_flash();
-                }
-            }
-
-            // Trigger on_change callbacks
-            //self.notify_observers();
-        }
-
-        pub fn modify(&mut self, delta: &AppSettingsDiff) {
-            {
-                let mut settings = self.settings.lock().unwrap();
-                let change_made = (*settings).modify(delta);
-                std::mem::drop(settings);
-
-                if change_made {
-                    self.save_to_flash();
-                }
-            }
-
-            // Trigger on_change callbacks
-            //self.notify_observers();
-        }
-
-        pub fn reset(&mut self) {
-            let mut settings = self.settings.lock().unwrap();
-            *settings = AppSettings::new();
-            std::mem::drop(settings);
-            self.save_to_flash();
+            self.settings.merge(delta);
+            // TODO: Replace saving to flash
         }
 
         pub fn reset_wifi_creds(&mut self) {
-            let mut settings = self.settings.lock().unwrap();
-            (*settings).ap_ssid = None;
-            (*settings).ap_psk = None;
-            std::mem::drop(settings);
-            self.save_to_flash();
+            self.settings.ap_ssid = None;
+            self.settings.ap_psk = None;
+            // TODO: Save to flash
         }
 
         pub fn reset_dexcom_creds(&mut self) {
-            let mut settings = self.settings.lock().unwrap();
-            (*settings).dexcom_user = None;
-            (*settings).dexcom_pass = None;
-            std::mem::drop(settings);
-            self.save_to_flash();
+            self.settings.dexcom_user = None;
+            self.settings.dexcom_pass = None;
+            // TODO: Save to flash
         }
 
         pub fn check_updates(&mut self) {
@@ -213,13 +106,13 @@ pub mod settings {
                 info!("Update found: {:?}", change);
                 match change {
                     SettingsAction::Set(settings) => self.set(&settings),
-                    SettingsAction::Reset => self.reset(),
+                    SettingsAction::Reset => info!("ERROR: Reset unimplemented"),
                 }
             }
         }
 
-        pub fn settings(&self) -> Arc<Mutex<AppSettings>> {
-            Arc::clone(&self.settings)
+        pub fn settings(&self) -> AppSettings {
+            self.settings.clone()
         }
 
         pub fn tx_channel(&self) -> Sender<SettingsAction> {
@@ -227,20 +120,18 @@ pub mod settings {
         }
     }
 
-    impl<'a> Subject<'a> for Store<'a> {
-        fn attach(&mut self, observer: &'a dyn Observer) {
-            self.observers.push(observer);
+    impl Storable for Store {
+        fn store_tag(&self) -> &str {
+            return &"credentials";
         }
 
-        fn detach(&mut self, observer: &'a dyn Observer) {
-            self.observers.retain(|o| !std::ptr::eq(*o, observer));
+        fn store_data(&self) -> Vec<u8> {
+            serde_json::to_string(&self.settings).unwrap().into_bytes()
         }
 
-        fn notify_observers(&self) {
-            /*let settings = self.settings.lock().unwrap();
-            for item in self.observers.iter() {
-                item.update(&settings);
-            }*/
+        fn recall_data(&mut self, data: &[u8]) {
+            let nvs_state = serde_json::from_slice::<AppSettings>(data).unwrap();
+            self.settings.merge(&nvs_state);
         }
     }
 }
