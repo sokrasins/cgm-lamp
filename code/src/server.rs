@@ -33,7 +33,7 @@ pub mod server {
         dexcom_pass_stored: bool,
         bat_attached: bool,
         bat_charging: bool,
-        bat_capacity: u8,
+        bat_capacity: f32,
         uptime: u64,
         temp: i16,
     }
@@ -50,7 +50,7 @@ pub mod server {
                 dexcom_pass_stored: false,
                 bat_attached: false,
                 bat_charging: false,
-                bat_capacity: 0,
+                bat_capacity: 0f32,
                 uptime: 0,
                 temp: 0,
             }
@@ -59,17 +59,11 @@ pub mod server {
 
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
-        tx_channel: Sender<SettingsAction>,
-        settings: Arc<Mutex<AppSettings>>,
     }
 
     impl<'a> Server<'a> {
-        pub fn new(store: &Store) -> Self {
-            Server {
-                server: None,
-                tx_channel: store.tx_channel(),
-                settings: store.settings(),
-            }
+        pub fn new() -> Self {
+            Server { server: None }
         }
 
         // Start server listeners

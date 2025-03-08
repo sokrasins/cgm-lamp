@@ -1,4 +1,5 @@
 pub mod wifi {
+    use crate::storage::storage::Storable;
     use embedded_svc::wifi::{
         AccessPointConfiguration, AuthMethod, ClientConfiguration, Configuration,
     };
@@ -8,6 +9,7 @@ pub mod wifi {
     use esp_idf_svc::mdns::EspMdns;
     use esp_idf_svc::nvs::{EspNvsPartition, NvsDefault};
     use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
+    use serde::{Deserialize, Serialize};
 
     use log::info;
 
@@ -19,6 +21,8 @@ pub mod wifi {
         wifi: BlockingWifi<EspWifi<'a>>,
         #[allow(dead_code)]
         mdns: EspMdns,
+        ap_ssid: Option<String>,
+        ap_psk: Option<String>,
     }
 
     impl<'a> Wifi<'a> {
@@ -40,15 +44,40 @@ pub mod wifi {
             mdns.set_service_instance_name("_http", "_tcp", "Glucose Monitoring Lamp")
                 .unwrap();
 
-            Ok(Wifi { wifi, mdns })
+            Ok(Wifi {
+                wifi,
+                mdns,
+                ap_ssid: None,
+                ap_psk: None,
+            })
         }
 
-        pub fn start_sta(&mut self, ssid: &str, pass: &str) -> anyhow::Result<()> {
+        pub fn has_creds(&self) -> bool {
+            if self.ap_ssid == None {
+                return false;
+            }
+
+            if self.ap_psk == None {
+                return false;
+            }
+
+            return true;
+        }
+
+        pub fn reset_creds(&mut self) {
+            self.ap_ssid = None;
+            self.ap_psk = None;
+        }
+
+        pub fn start_sta(&mut self) -> anyhow::Result<()> {
+            let ssid = self.ap_ssid.clone().unwrap();
+            let pass = self.ap_psk.clone().unwrap();
+
             let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
-                ssid: ssid.try_into().unwrap(),
+                ssid: ssid.as_str().try_into().unwrap(),
                 bssid: None,
                 auth_method: AuthMethod::WPA2Personal,
-                password: pass.try_into().unwrap(),
+                password: pass.as_str().try_into().unwrap(),
                 channel: None,
                 ..Default::default()
             });
@@ -109,6 +138,33 @@ pub mod wifi {
             );
 
             Ok(())
+        }
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct NvsWifiState {
+        ap_ssid: Option<String>,
+        ap_psk: Option<String>,
+    }
+
+    impl<'a> Storable for Wifi<'a> {
+        fn store_tag(&self) -> &str {
+            return &"wifi_credentials";
+        }
+
+        fn store_data(&self) -> Vec<u8> {
+            let data = NvsWifiState {
+                ap_ssid: self.ap_ssid.to_owned(),
+                ap_psk: self.ap_psk.to_owned(),
+            };
+
+            serde_json::to_string(&data).unwrap().into_bytes()
+        }
+
+        fn recall_data(&mut self, data: &[u8]) {
+            let nvs_state = serde_json::from_slice::<NvsWifiState>(data).unwrap();
+            self.ap_ssid = nvs_state.ap_ssid;
+            self.ap_psk = nvs_state.ap_psk;
         }
     }
 }

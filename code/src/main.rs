@@ -15,7 +15,8 @@ use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE};
 use cgmlamp::server::server::Server;
-use cgmlamp::settings::settings::{AppSettingsDiff, Observer, Store};
+use cgmlamp::settings::settings::Store;
+use cgmlamp::storage::storage::Storage;
 use cgmlamp::wifi::wifi::Wifi;
 
 use cgmlamp::dimmer::dimmer::LightDimmer;
@@ -45,29 +46,30 @@ fn main() -> anyhow::Result<()> {
 
     // GPIO Alerts
     let bat_charge_pin = PinDriver::input(peripherals.pins.gpio4)?;
-    let enc_but = PinDriver::input(peripherals.pins.gpio11)?;
+    let encoder_button = PinDriver::input(peripherals.pins.gpio11)?;
     let mut indicator_pin = PinDriver::output(peripherals.pins.gpio5)?;
-    // encoder button
     // fuel gauge alert
 
     // Show the ESP has started
     indicator_pin.set_high()?;
 
-    // Application state
-    let mut store = Store::new(&nvs);
-    store.load_from_flash();
+    // Non-volatile State
+    let mut storage = Storage::new(&nvs);
 
     // App state
     let mut app_state = AppState::Boot;
 
     // Create dexcom object
     let mut dexcom = Dexcom::new();
+    storage.recall(&mut dexcom);
 
     let mut lamp = Lamp::new(peripherals.pins.gpio8, peripherals.rmt.channel0);
+    storage.recall(&mut lamp);
 
     let mut wifi = Wifi::new(peripherals.modem, &sys_loop, &nvs).unwrap();
+    storage.recall(&mut wifi);
 
-    let mut server = Server::new(&store);
+    let mut server = Server::new();
 
     let mut no_measurement_count = 0;
     let mut last_query: u64 = 0;
@@ -97,25 +99,15 @@ fn main() -> anyhow::Result<()> {
             .as_secs()
             + QUERY_INTERVAL;
 
-        // Ingest settings updates
-        // Define closure to be explicit about lock lifetime
-        {
-            store.check_updates();
-            let settings = store.settings();
-            let settings = settings.lock().unwrap();
-            lamp.update(&settings);
-        }
-
-        // Show encoder updates
+        // Check for encoder change and update brightness
         let bright_change = dimmer.get_change();
         if bright_change != 0 {
             info!("change brightness by: {bright_change}");
-            let mut bright = AppSettingsDiff::new();
-            bright.set_brightness_diff(4*bright_change);
-            store.modify(&bright);
+            lamp.change_brightness(4 * bright_change);
         }
 
-        let button_state = enc_but.is_high();
+        // Check for button change and toggle brightness
+        let button_state = encoder_button.is_high();
         if last_button_state != button_state {
             if button_state == false {
                 info!("Button pushed, toggling lamp");
@@ -129,10 +121,7 @@ fn main() -> anyhow::Result<()> {
                 // Update presentation
                 lamp.set_color(LedState::Steady(WHITE));
 
-                let settings_guard = store.settings();
-                let settings_guard = settings_guard.lock().unwrap();
-
-                if (*settings_guard).has_wifi_creds() && (*settings_guard).has_dexcom_creds() {
+                if wifi.has_creds() && dexcom.has_creds() {
                     app_state = AppState::ConnectWifi;
                 } else {
                     // Advance to next state
@@ -148,10 +137,7 @@ fn main() -> anyhow::Result<()> {
                 app_state = AppState::WaitForConfig;
             }
             AppState::WaitForConfig => {
-                let settings_guard = store.settings();
-                let settings_guard = settings_guard.lock().unwrap();
-
-                if (*settings_guard).has_wifi_creds() && (*settings_guard).has_dexcom_creds() {
+                if wifi.has_creds() && dexcom.has_creds() {
                     server.stop();
                     lamp.set_color(LedState::Steady(WHITE));
                     app_state = AppState::ConnectWifi;
@@ -159,16 +145,9 @@ fn main() -> anyhow::Result<()> {
             }
             AppState::ConnectWifi => {
                 // Set up wifi, connect to AP
-                let settings_guard = store.settings();
-                let settings_guard = settings_guard.lock().unwrap();
-
-                match wifi.start_sta(
-                    &(*settings_guard).ap_ssid.as_ref().unwrap(),
-                    &(*settings_guard).ap_psk.as_ref().unwrap(),
-                ) {
+                match wifi.start_sta() {
                     Ok(_) => {
                         // Start the http server
-                        core::mem::drop(settings_guard);
                         info!("Wifi connected, starting web interface");
                         server.start().unwrap();
                         app_state = AppState::GetSession;
@@ -176,34 +155,20 @@ fn main() -> anyhow::Result<()> {
                     Err(_) => {
                         // If connection fails too many times, open in AP mode
                         info!("Couldn't connect to wifi, launching AP mode for AP credentials");
-                        core::mem::drop(settings_guard);
-                        store.reset_wifi_creds();
+                        wifi.reset_creds();
                         app_state = AppState::PresentAp;
                     }
                 }
             }
             AppState::GetSession => {
-                let settings_guard = store.settings();
-                let settings_guard = settings_guard.lock().unwrap();
-
-                dexcom
-                    .connect(
-                        &(*settings_guard).dexcom_user.as_ref().unwrap(),
-                        &(*settings_guard).dexcom_pass.as_ref().unwrap(),
-                    )
-                    .unwrap();
+                dexcom.connect().unwrap();
 
                 // TODO: Check for valid dexcom credentials
-
-                core::mem::drop(settings_guard);
 
                 app_state = AppState::DisplayGlucose;
             }
             AppState::DisplayGlucose => {
-                let settings_guard = store.settings();
-                let settings_guard = settings_guard.lock().unwrap();
-
-                if !(*settings_guard).has_wifi_creds() || !(*settings_guard).has_dexcom_creds() {
+                if !wifi.has_creds() || !dexcom.has_creds() {
                     server.stop();
                     app_state = AppState::PresentAp;
                 } else if now > (last_query + QUERY_INTERVAL) {

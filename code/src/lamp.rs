@@ -1,7 +1,8 @@
 pub mod lamp {
-    use crate::settings::settings::{AppSettings, Observer};
+    use crate::storage::storage::Storable;
     use esp_idf_hal::{gpio::OutputPin, peripheral::Peripheral, rmt::RmtChannel};
     use rgb_led::{RGB8, WS2812RMT};
+    use serde::{Deserialize, Serialize};
 
     pub const COLOR_MAX: u8 = 255;
 
@@ -89,6 +90,12 @@ pub mod lamp {
         led: WS2812RMT<'a>,
     }
 
+    #[derive(Serialize, Deserialize)]
+    struct NvsLampState {
+        brightness: f32,
+        on: bool,
+    }
+
     pub fn set_bright(color: &RGB8, brightness: f32) -> RGB8 {
         RGB8 {
             r: ((color.r as f32) * brightness) as u8,
@@ -124,6 +131,11 @@ pub mod lamp {
             self.set_led();
         }
 
+        pub fn change_brightness(&mut self, brightness: i32) {
+            self.brightness += (brightness as f32) / 255.0;
+            self.set_led();
+        }
+
         pub fn on(&mut self) {
             self.on = true;
         }
@@ -152,17 +164,30 @@ pub mod lamp {
                 LedState::Off => self.led.set_pixel(BLACK).unwrap(),
             };
         }
+
+        fn get_nvs_state(&self) -> NvsLampState {
+            NvsLampState {
+                brightness: self.brightness,
+                on: self.on,
+            }
+        }
     }
 
-    impl<'a> Observer for Lamp<'a> {
-        fn update(&mut self, state: &AppSettings) -> bool {
-            let mut ret = false;
-            if let Some(brightness) = state.brightness {
-                self.set_brightness(brightness);
-                ret = true;
-            }
+    impl<'a> Storable for Lamp<'a> {
+        fn store_tag(&self) -> &str {
+            return &"lamp_state";
+        }
 
-            ret
+        fn store_data(&self) -> Vec<u8> {
+            serde_json::to_string(&self.get_nvs_state())
+                .unwrap()
+                .into_bytes()
+        }
+
+        fn recall_data(&mut self, data: &[u8]) {
+            let nvs_state = serde_json::from_slice::<NvsLampState>(data).unwrap();
+            self.brightness = nvs_state.brightness;
+            self.on = nvs_state.on;
         }
     }
 }
