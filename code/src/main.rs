@@ -111,7 +111,7 @@ fn main() -> anyhow::Result<()> {
         if bright_change != 0 {
             info!("change brightness by: {bright_change}");
             let mut bright = AppSettingsDiff::new();
-            bright.set_brightness_diff(bright_change);
+            bright.set_brightness_diff(4*bright_change);
             store.modify(&bright);
         }
 

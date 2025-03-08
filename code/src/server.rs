@@ -1,5 +1,4 @@
 pub mod server {
-    use crate::settings::settings::{AppSettings, SettingsAction, Store};
     use embedded_svc::{
         http::{Headers, Method},
         io::{Read, Write},
@@ -188,5 +187,22 @@ pub mod server {
         pub fn stop(&mut self) {
             self.server = None
         }
+    }
+
+    #[derive(Debug)]
+    pub enum ServableDataReq<T> {
+        Set(T),
+        Get,
+        Reset,
+    }
+
+    pub enum ServableDataRsp<T> {
+        Data(T),
+        Done,
+        Error,
+    }
+
+    pub trait ServableData<T> {
+        fn set_channel(&mut self) -> Sender<ServableDataReq<T>>;
     }
 }

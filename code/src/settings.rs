@@ -115,12 +115,6 @@ pub mod settings {
         }
     }
 
-    #[derive(Debug)]
-    pub enum SettingsAction {
-        Set(AppSettings),
-        Reset,
-    }
-
     pub struct Store<'a> {
         settings: Arc<Mutex<AppSettings>>,
         observers: Vec<&'a dyn Observer>,
