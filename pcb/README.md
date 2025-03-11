@@ -18,3 +18,4 @@ The PCB for the CGM lamp
 - Low-voltage cut-off?
 - Don't need reset button?
 - Move USB so it's flush with housing
+- Replace R5 with divider, to 3V3 so ESP can sense USB power
