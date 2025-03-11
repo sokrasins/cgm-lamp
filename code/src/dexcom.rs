@@ -308,7 +308,7 @@ pub mod dexcom {
 
     impl Storable for Dexcom {
         fn store_tag(&self) -> &str {
-            return &"dexcom_credentials";
+            return &"dexcom_creds";
         }
 
         fn store_data(&self) -> Vec<u8> {

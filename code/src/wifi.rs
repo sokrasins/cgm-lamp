@@ -166,7 +166,7 @@ pub mod wifi {
 
     impl<'a> Storable for Wifi<'a> {
         fn store_tag(&self) -> &str {
-            return &"wifi_credentials";
+            return &"wifi_creds";
         }
 
         fn store_data(&self) -> Vec<u8> {
