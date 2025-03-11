@@ -359,6 +359,12 @@ pub mod dexcom {
                             self.save_data = true;
                         }
                     }
+
+                    if let ServableDataReq::Reset = &req {
+                        self.user_name = None;
+                        self.user_pass = None;
+                        self.save_data = true;
+                    }
                 }
             }
         }

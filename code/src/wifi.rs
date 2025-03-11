@@ -217,6 +217,12 @@ pub mod wifi {
                             self.save_data = true;
                         }
                     }
+
+                    if let ServableDataReq::Reset = &req {
+                        self.ap_ssid = None;
+                        self.ap_psk = None;
+                        self.save_data = true;
+                    }
                 }
             }
         }

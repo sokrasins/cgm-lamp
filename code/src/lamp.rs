@@ -263,6 +263,13 @@ pub mod lamp {
                             self.save_data = true;
                         }
                     }
+
+                    if let ServableDataReq::Reset = &req {
+                        self.on();
+                        self.brightness = 0.25f32;
+                        self.last_changed = uptime();
+                        self.save_data = true;
+                    }
                 }
             }
         }
