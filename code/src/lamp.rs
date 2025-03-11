@@ -1,11 +1,14 @@
 pub mod lamp {
     use crate::server::server::{ServableData, ServableDataReq, ServableDataRsp, ServerData};
     use crate::storage::storage::Storable;
+    use crate::sys::sys::uptime;
     use esp_idf_hal::{gpio::OutputPin, peripheral::Peripheral, rmt::RmtChannel};
     use log::info;
     use rgb_led::{RGB8, WS2812RMT};
     use serde::{Deserialize, Serialize};
     use std::sync::mpsc;
+
+    const SAVE_DELAY: u64 = 5;
 
     pub const COLOR_MAX: u8 = 255;
 
@@ -92,6 +95,8 @@ pub mod lamp {
         on: bool,
         led: WS2812RMT<'a>,
         server_channel: Option<mpsc::Receiver<ServableDataReq>>,
+        save_data: bool,
+        last_changed: u64,
     }
 
     #[derive(Serialize, Deserialize)]
@@ -123,6 +128,8 @@ pub mod lamp {
                 led,
                 on: true,
                 server_channel: None,
+                save_data: false,
+                last_changed: 0,
             }
         }
 
@@ -133,24 +140,36 @@ pub mod lamp {
 
         pub fn set_brightness(&mut self, brightness: u8) {
             self.brightness = (brightness as f32) / 255.0;
+            self.last_changed = uptime();
+            self.save_data = true;
             self.set_led();
         }
 
         pub fn change_brightness(&mut self, brightness: i32) {
             self.brightness += (brightness as f32) / 255.0;
+            self.last_changed = uptime();
+            self.save_data = true;
             self.set_led();
         }
 
         pub fn on(&mut self) {
             self.on = true;
+            self.last_changed = uptime();
+            self.save_data = true;
+            self.set_led();
         }
 
         pub fn off(&mut self) {
             self.on = false;
+            self.last_changed = uptime();
+            self.save_data = true;
+            self.set_led();
         }
 
         pub fn toggle(&mut self) {
             self.on = !self.on;
+            self.last_changed = uptime();
+            self.save_data = true;
             self.set_led();
         }
 
@@ -181,29 +200,16 @@ pub mod lamp {
             }
         }
 
-        pub fn handle_server_req(&mut self) {
-            if let Some(channel) = &self.server_channel {
-                if let Ok(req) = channel.try_recv() {
-                    info!("lamp got a request from server");
-
-                    if let ServableDataReq::Get(back_channel) = &req {
-                        info!("Sending lamp state to server");
-                        let mut rsp = ServerData::new();
-                        rsp.brightness = Some((self.brightness * 255.0) as i32 as u8);
-                        rsp.on = Some(self.on);
-                        back_channel.send(ServableDataRsp::Data(rsp)).unwrap();
-                    }
-
-                    if let ServableDataReq::Set(update) = &req {
-                        self.set_brightness(update.brightness);
-                        if update.on {
-                            self.on();
-                        } else {
-                            self.off();
-                        }
-                    }
-                }
+        pub fn need_to_save(&self) -> bool {
+            if self.save_data && (self.last_changed + SAVE_DELAY <= uptime()) {
+                return true;
             }
+
+            false
+        }
+
+        pub fn saved(&mut self) {
+            self.save_data = false;
         }
     }
 
@@ -230,6 +236,35 @@ pub mod lamp {
             let (tx, rx) = mpsc::channel::<ServableDataReq>();
             self.server_channel = Some(rx);
             tx
+        }
+
+        fn handle_server_req(&mut self) {
+            if let Some(channel) = &self.server_channel {
+                if let Ok(req) = channel.try_recv() {
+                    info!("lamp got a request from server");
+
+                    if let ServableDataReq::Get(back_channel) = &req {
+                        info!("Sending lamp state to server");
+                        let mut rsp = ServerData::new();
+                        rsp.brightness = Some((self.brightness * 255.0) as i32 as u8);
+                        rsp.on = Some(self.on);
+                        back_channel.send(ServableDataRsp::Data(rsp)).unwrap();
+                    }
+
+                    if let ServableDataReq::Set(update) = &req {
+                        self.set_brightness(update.brightness);
+                        if update.on {
+                            self.on();
+                            self.last_changed = uptime();
+                            self.save_data = true;
+                        } else {
+                            self.off();
+                            self.last_changed = uptime();
+                            self.save_data = true;
+                        }
+                    }
+                }
+            }
         }
     }
 }

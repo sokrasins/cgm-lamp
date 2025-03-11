@@ -1,24 +1,21 @@
 use log::info;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
 use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
 
-use esp_idf_hal::i2c::*;
-use esp_idf_hal::prelude::*;
-use max170xx::Max17048;
-
 use esp_idf_hal::gpio::PinDriver;
 
 use cgmlamp::dexcom::dexcom::Dexcom;
+use cgmlamp::dimmer::dimmer::LightDimmer;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE};
+use cgmlamp::power::power::Power;
+use cgmlamp::server::server::ServableData;
 use cgmlamp::server::server::Server;
 use cgmlamp::storage::storage::Storage;
+use cgmlamp::sys::sys::{uptime, Sys};
 use cgmlamp::wifi::wifi::Wifi;
-
-use cgmlamp::dimmer::dimmer::LightDimmer;
 
 // Application state machine states
 enum AppState {
@@ -43,20 +40,25 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
 
-    // GPIO Alerts
-    let bat_charge_pin = PinDriver::input(peripherals.pins.gpio4)?;
-    let encoder_button = PinDriver::input(peripherals.pins.gpio11)?;
-    let mut indicator_pin = PinDriver::output(peripherals.pins.gpio5)?;
-    // fuel gauge alert
+    // System module
+    let indicator_pin = PinDriver::output(peripherals.pins.gpio5)?;
+    let mut sys = Sys::new(indicator_pin, peripherals.temp_sensor);
 
     // Show the ESP has started
-    indicator_pin.set_high()?;
+    sys.ind_on();
 
     // Non-volatile State
-    let storage = Storage::new(&nvs);
+    let mut storage = Storage::new(&nvs);
 
     // App state
     let mut app_state = AppState::Boot;
+
+    // Fuel Gauge
+    let i2c = peripherals.i2c0;
+    let sda = peripherals.pins.gpio6;
+    let scl = peripherals.pins.gpio7;
+    let bat_charge_pin = PinDriver::input(peripherals.pins.gpio4)?;
+    let mut power = Power::new(i2c, sda, scl, bat_charge_pin).unwrap();
 
     // Create dexcom object
     let mut dexcom = Dexcom::new();
@@ -79,6 +81,8 @@ fn main() -> anyhow::Result<()> {
     server.add_data_channel(&mut lamp);
     server.add_data_channel(&mut wifi);
     server.add_data_channel(&mut dexcom);
+    server.add_data_channel(&mut power);
+    server.add_data_channel(&mut sys);
 
     let mut no_measurement_count = 0;
     let mut last_query: u64 = 0;
@@ -87,26 +91,15 @@ fn main() -> anyhow::Result<()> {
     // Set up encoder
     let mut pin_a = peripherals.pins.gpio18;
     let mut pin_b = peripherals.pins.gpio19;
+    let encoder_button = PinDriver::input(peripherals.pins.gpio11)?;
     let mut dimmer = LightDimmer::new(peripherals.pcnt0, &mut pin_a, &mut pin_b)?;
-
-    // Fuel Gauge
-    let i2c = peripherals.i2c0;
-    let sda = peripherals.pins.gpio6;
-    let scl = peripherals.pins.gpio7;
-    let config = I2cConfig::new().baudrate(100.kHz().into());
-    let i2c = I2cDriver::new(i2c, sda, scl, &config)?;
-    let mut sensor = Max17048::new(i2c);
 
     let mut last_button_state = true;
 
     loop {
         // Get time now. Adding the interval will make the first measurement
         // happen immediately.
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs()
-            + QUERY_INTERVAL;
+        let now = uptime() + QUERY_INTERVAL;
 
         // Check for encoder change and update brightness
         let bright_change = dimmer.get_change();
@@ -129,6 +122,24 @@ fn main() -> anyhow::Result<()> {
         lamp.handle_server_req();
         wifi.handle_server_req();
         dexcom.handle_server_req();
+        power.handle_server_req();
+        sys.handle_server_req();
+
+        // Let each object that needs to store data do so
+        if wifi.need_to_save() {
+            storage.store(&mut wifi).unwrap();
+            wifi.saved();
+        }
+
+        if dexcom.need_to_save() {
+            storage.store(&mut dexcom).unwrap();
+            dexcom.saved();
+        }
+
+        if lamp.need_to_save() {
+            storage.store(&mut lamp).unwrap();
+            lamp.saved();
+        }
 
         match app_state {
             AppState::Boot => {
@@ -186,13 +197,13 @@ fn main() -> anyhow::Result<()> {
                     server.stop();
                     app_state = AppState::PresentAp;
                 } else if now > (last_query + QUERY_INTERVAL) {
-                    let soc = sensor.soc().unwrap();
-                    let voltage = sensor.voltage().unwrap();
-                    let charge_rate = sensor.charge_rate().unwrap();
+                    let soc = power.batt_charge().unwrap();
+                    let voltage = power.batt_voltage().unwrap();
+                    let charge_rate = power.batt_charge_rate().unwrap();
                     info!("Charge: {:.2}%", soc);
                     info!("Charge Rate: {:.2}%", charge_rate);
                     info!("Voltage: {:.2}V", voltage);
-                    info!("Battery charging: {}", bat_charge_pin.is_high());
+                    info!("Battery charging: {}", power.batt_charging());
 
                     // Update last
                     info!("{}: getting latest glucose", now);

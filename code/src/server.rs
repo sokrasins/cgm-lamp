@@ -46,7 +46,7 @@ pub mod server {
         pub bat_charging: Option<bool>,
         pub bat_capacity: Option<f32>,
         pub uptime: Option<u64>,
-        pub temp: Option<i16>,
+        pub temp: Option<f32>,
     }
 
     impl ServerData {
@@ -153,12 +153,9 @@ pub mod server {
                             req.read_exact(&mut buf)?;
                             let mut resp = req.into_ok_response()?;
 
-                            info!("got json set: {:?}", buf);
-
                             let msg = serde_json::from_slice::<ServerUpdate>(&buf);
                             match msg {
                                 Ok(form) => {
-                                    info!("Got new settings: {:?}", form);
                                     Server::send_server_update(&data_channels, &form);
                                     write!(resp, "New settings applied")?;
                                 }
@@ -195,25 +192,25 @@ pub mod server {
             }
 
             // Listener: Handle new settings from the web app
-            // {
-            //     let tx = self.tx_channel.clone();
-            //     self.server
-            //         .as_mut()
-            //         .unwrap()
-            //         .fn_handler::<anyhow::Error, _>(
-            //             &format!("/api/{}/{}", API_VER, API_RESET),
-            //             Method::Post,
-            //             move |req| {
-            //                 let mut resp = req.into_ok_response()?;
-            //
-            //                 tx.send(SettingsAction::Reset).unwrap();
-            //                 info!("Resetting");
-            //                 write!(resp, "All settings reset")?;
-            //
-            //                 Ok(())
-            //             },
-            //         )?;
-            // }
+            {
+                let data_channels = self.data_channels.clone();
+                self.server
+                    .as_mut()
+                    .unwrap()
+                    .fn_handler::<anyhow::Error, _>(
+                        &format!("/api/{}/{}", API_VER, API_RESET),
+                        Method::Post,
+                        move |req| {
+                            let mut resp = req.into_ok_response()?;
+
+                            Server::send_reset_signal(&data_channels);
+                            info!("Resetting");
+                            write!(resp, "All settings reset")?;
+
+                            Ok(())
+                        },
+                    )?;
+            }
 
             Ok(())
         }
@@ -252,6 +249,12 @@ pub mod server {
             server_data
         }
 
+        pub fn send_reset_signal(channels: &Vec<Sender<ServableDataReq>>) {
+            for channel in channels.iter() {
+                channel.send(ServableDataReq::Reset).unwrap();
+            }
+        }
+
         pub fn stop(&mut self) {
             self.server = None
         }
@@ -259,5 +262,6 @@ pub mod server {
 
     pub trait ServableData {
         fn get_channel(&mut self) -> Sender<ServableDataReq>;
+        fn handle_server_req(&mut self);
     }
 }

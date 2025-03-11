@@ -108,6 +108,7 @@ pub mod dexcom {
         user_name: Option<String>,
         user_pass: Option<String>,
         server_channel: Option<mpsc::Receiver<ServableDataReq>>,
+        save_data: bool,
     }
 
     impl Dexcom {
@@ -128,6 +129,7 @@ pub mod dexcom {
                 user_name: None,
                 user_pass: None,
                 server_channel: None,
+                save_data: false,
             }
         }
 
@@ -289,30 +291,12 @@ pub mod dexcom {
             Ok("".to_owned())
         }
 
-        pub fn handle_server_req(&mut self) {
-            if let Some(channel) = &self.server_channel {
-                if let Ok(req) = channel.try_recv() {
-                    info!("wifi got a request from server");
+        pub fn need_to_save(&self) -> bool {
+            self.save_data
+        }
 
-                    if let ServableDataReq::Get(back_channel) = &req {
-                        info!("Sending wifi state to server");
-                        let mut rsp = ServerData::new();
-                        rsp.dexcom_user_stored = Some(self.user_name.is_some());
-                        rsp.dexcom_pass_stored = Some(self.user_pass.is_some());
-                        back_channel.send(ServableDataRsp::Data(rsp)).unwrap();
-                    }
-
-                    if let ServableDataReq::Set(update) = &req {
-                        if let Some(dexcom_uname) = &update.dexcom_user {
-                            self.user_name = Some(dexcom_uname.clone());
-                        }
-
-                        if let Some(dexcom_pass) = &update.dexcom_pass {
-                            self.user_pass = Some(dexcom_pass.clone());
-                        }
-                    }
-                }
-            }
+        pub fn saved(&mut self) {
+            self.save_data = false;
         }
     }
 
@@ -340,6 +324,7 @@ pub mod dexcom {
             let nvs_state = serde_json::from_slice::<NvsDexcomState>(data).unwrap();
             self.user_name = nvs_state.user_name;
             self.user_pass = nvs_state.user_pass;
+            self.save_data = false;
         }
     }
 
@@ -348,6 +333,34 @@ pub mod dexcom {
             let (tx, rx) = mpsc::channel::<ServableDataReq>();
             self.server_channel = Some(rx);
             tx
+        }
+
+        fn handle_server_req(&mut self) {
+            if let Some(channel) = &self.server_channel {
+                if let Ok(req) = channel.try_recv() {
+                    info!("wifi got a request from server");
+
+                    if let ServableDataReq::Get(back_channel) = &req {
+                        info!("Sending wifi state to server");
+                        let mut rsp = ServerData::new();
+                        rsp.dexcom_user_stored = Some(self.user_name.is_some());
+                        rsp.dexcom_pass_stored = Some(self.user_pass.is_some());
+                        back_channel.send(ServableDataRsp::Data(rsp)).unwrap();
+                    }
+
+                    if let ServableDataReq::Set(update) = &req {
+                        if let Some(dexcom_uname) = &update.dexcom_user {
+                            self.user_name = Some(dexcom_uname.clone());
+                            self.save_data = true;
+                        }
+
+                        if let Some(dexcom_pass) = &update.dexcom_pass {
+                            self.user_pass = Some(dexcom_pass.clone());
+                            self.save_data = true;
+                        }
+                    }
+                }
+            }
         }
     }
 }

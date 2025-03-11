@@ -70,5 +70,4 @@ settings to device.
 - Re-implement lamp breathe, with faster response
 - Change server for something with TLS
 - Show power state in web UI
-- Refactor state management
 
