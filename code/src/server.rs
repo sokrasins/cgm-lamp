@@ -6,8 +6,9 @@ pub mod server {
     use esp_idf_svc::http::server::EspHttpServer;
     use log::info;
     use serde::{Deserialize, Serialize};
+    use std::sync::mpsc;
     use std::sync::mpsc::Sender;
-    use std::sync::{Arc, Mutex};
+    //use std::sync::{Arc, Mutex};
 
     static INDEX_HTML: &str = include_str!("index.html");
 
@@ -22,48 +23,93 @@ pub mod server {
     const API_SET: &str = "set";
     const API_RESET: &str = "reset";
 
-    #[derive(Debug, Deserialize, Serialize)]
-    struct StateRsp {
-        brightness: u8,
-        on: bool,
-        cred_store: String,
-        ap_ssid_stored: bool,
-        ap_psk_stored: bool,
-        dexcom_user_stored: bool,
-        dexcom_pass_stored: bool,
-        bat_attached: bool,
-        bat_charging: bool,
-        bat_capacity: f32,
-        uptime: u64,
-        temp: i16,
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct ServerUpdate {
+        pub brightness: u8,
+        pub on: bool,
+        pub ap_ssid: Option<String>,
+        pub ap_psk: Option<String>,
+        pub dexcom_user: Option<String>,
+        pub dexcom_pass: Option<String>,
     }
 
-    impl StateRsp {
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct ServerData {
+        pub brightness: Option<u8>,
+        pub on: Option<bool>,
+        //cred_store: Option<String>,
+        pub ap_ssid_stored: Option<bool>,
+        pub ap_psk_stored: Option<bool>,
+        pub dexcom_user_stored: Option<bool>,
+        pub dexcom_pass_stored: Option<bool>,
+        pub bat_attached: Option<bool>,
+        pub bat_charging: Option<bool>,
+        pub bat_capacity: Option<f32>,
+        pub uptime: Option<u64>,
+        pub temp: Option<i16>,
+    }
+
+    impl ServerData {
         pub fn new() -> Self {
             Self {
-                brightness: 0,
-                on: false,
-                cred_store: "".to_string(),
-                ap_ssid_stored: false,
-                ap_psk_stored: false,
-                dexcom_user_stored: false,
-                dexcom_pass_stored: false,
-                bat_attached: false,
-                bat_charging: false,
-                bat_capacity: 0f32,
-                uptime: 0,
-                temp: 0,
+                brightness: None,
+                on: None,
+                //cred_store: None,
+                ap_ssid_stored: None,
+                ap_psk_stored: None,
+                dexcom_user_stored: None,
+                dexcom_pass_stored: None,
+                bat_attached: None,
+                bat_charging: None,
+                bat_capacity: None,
+                uptime: None,
+                temp: None,
             }
         }
+
+        pub fn merge(&mut self, other: &ServerData) {
+            self.brightness = self.brightness.or(other.brightness);
+            self.on = self.on.or(other.on);
+            //self.cred_store = self.cred_store.clone().or(other.cred_store.clone());
+            self.ap_ssid_stored = self.ap_ssid_stored.or(other.ap_ssid_stored);
+            self.ap_psk_stored = self.ap_psk_stored.or(other.ap_psk_stored);
+            self.dexcom_user_stored = self.dexcom_user_stored.or(other.dexcom_user_stored);
+            self.dexcom_pass_stored = self.dexcom_pass_stored.or(other.dexcom_pass_stored);
+            self.bat_attached = self.bat_attached.or(other.bat_attached);
+            self.bat_charging = self.bat_charging.or(other.bat_charging);
+            self.bat_capacity = self.bat_capacity.or(other.bat_capacity);
+            self.uptime = self.uptime.or(other.uptime);
+            self.temp = self.temp.or(other.temp);
+        }
+    }
+
+    #[derive(Debug)]
+    pub enum ServableDataReq {
+        Set(ServerUpdate),
+        Get(mpsc::Sender<ServableDataRsp>),
+        Reset,
+    }
+
+    pub enum ServableDataRsp {
+        Data(ServerData),
+        Error,
     }
 
     pub struct Server<'a> {
         server: Option<EspHttpServer<'a>>,
+        data_channels: Vec<Sender<ServableDataReq>>,
     }
 
     impl<'a> Server<'a> {
         pub fn new() -> Self {
-            Server { server: None }
+            Server {
+                server: None,
+                data_channels: Vec::new(),
+            }
+        }
+
+        pub fn add_data_channel(&mut self, obj: &mut impl ServableData) {
+            self.data_channels.push(obj.get_channel())
         }
 
         // Start server listeners
@@ -72,9 +118,6 @@ pub mod server {
                 stack_size: STACK_SIZE,
                 ..Default::default()
             };
-
-            // Clone tx_channel to give it to the server handler
-            let settings: Arc<Mutex<AppSettings>> = Arc::clone(&self.settings);
 
             self.server = Some(EspHttpServer::new(&server_configuration).unwrap());
 
@@ -88,9 +131,9 @@ pub mod server {
                         .map(|_| ())
                 })?;
 
-            // Listener: Handle new settings from the web app
+            //Listener: Handle new settings from the web app
             {
-                let tx = self.tx_channel.clone();
+                let data_channels = self.data_channels.clone();
                 self.server
                     .as_mut()
                     .unwrap()
@@ -110,12 +153,19 @@ pub mod server {
                             req.read_exact(&mut buf)?;
                             let mut resp = req.into_ok_response()?;
 
-                            if let Ok(form) = serde_json::from_slice::<AppSettings>(&buf) {
-                                info!("Got new settings: {:?}", form);
-                                tx.send(SettingsAction::Set(form)).unwrap();
-                                write!(resp, "New settings applied")?;
-                            } else {
-                                resp.write_all("JSON error".as_bytes())?;
+                            info!("got json set: {:?}", buf);
+
+                            let msg = serde_json::from_slice::<ServerUpdate>(&buf);
+                            match msg {
+                                Ok(form) => {
+                                    info!("Got new settings: {:?}", form);
+                                    Server::send_server_update(&data_channels, &form);
+                                    write!(resp, "New settings applied")?;
+                                }
+                                Err(e) => {
+                                    info!("Error parsing SET data: {}", e);
+                                    resp.write_all("JSON error".as_bytes())?;
+                                }
                             }
 
                             Ok(())
@@ -124,58 +174,82 @@ pub mod server {
             }
 
             // Listener: Serve the device's status when on request
-            self.server.as_mut().unwrap().fn_handler(
-                &format!("/api/{}/{}", API_VER, API_STATE),
-                Method::Get,
-                move |req| {
-                    info!("Get request on /state!");
-
-                    let mut state_rsp = StateRsp::new();
-
-                    // Acquire lock on sapp state
-                    let state_guard = settings.lock().unwrap();
-                    let state = (*state_guard).clone();
-                    std::mem::drop(state_guard);
-
-                    state_rsp.brightness = state.brightness.unwrap();
-                    state_rsp.on = true;
-                    state_rsp.ap_ssid_stored = state.ap_ssid.is_some();
-                    state_rsp.ap_psk_stored = state.ap_psk.is_some();
-                    state_rsp.dexcom_user_stored = state.dexcom_user.is_some();
-                    state_rsp.dexcom_pass_stored = state.dexcom_pass.is_some();
-
-                    info!("{:?}", state_rsp);
-
-                    // Serialize, send back to web app
-                    let state_ser = serde_json::to_string(&state_rsp).unwrap();
-                    req.into_ok_response()?
-                        .write_all(state_ser.as_bytes())
-                        .map(|_| ())
-                },
-            )?;
-
-            // Listener: Handle new settings from the web app
             {
-                let tx = self.tx_channel.clone();
-                self.server
-                    .as_mut()
-                    .unwrap()
-                    .fn_handler::<anyhow::Error, _>(
-                        &format!("/api/{}/{}", API_VER, API_RESET),
-                        Method::Post,
-                        move |req| {
-                            let mut resp = req.into_ok_response()?;
+                let data_channels = self.data_channels.clone();
+                self.server.as_mut().unwrap().fn_handler(
+                    &format!("/api/{}/{}", API_VER, API_STATE),
+                    Method::Get,
+                    move |req| {
+                        info!("Get request on /state!");
 
-                            tx.send(SettingsAction::Reset).unwrap();
-                            info!("Resetting");
-                            write!(resp, "All settings reset")?;
+                        let app_state = Server::get_server_data(&data_channels);
+                        info!("assembled state: {:?}", app_state);
 
-                            Ok(())
-                        },
-                    )?;
+                        // Serialize, send back to web app
+                        let state_ser = serde_json::to_string(&app_state).unwrap();
+                        req.into_ok_response()?
+                            .write_all(state_ser.as_bytes())
+                            .map(|_| ())
+                    },
+                )?;
             }
 
+            // Listener: Handle new settings from the web app
+            // {
+            //     let tx = self.tx_channel.clone();
+            //     self.server
+            //         .as_mut()
+            //         .unwrap()
+            //         .fn_handler::<anyhow::Error, _>(
+            //             &format!("/api/{}/{}", API_VER, API_RESET),
+            //             Method::Post,
+            //             move |req| {
+            //                 let mut resp = req.into_ok_response()?;
+            //
+            //                 tx.send(SettingsAction::Reset).unwrap();
+            //                 info!("Resetting");
+            //                 write!(resp, "All settings reset")?;
+            //
+            //                 Ok(())
+            //             },
+            //         )?;
+            // }
+
             Ok(())
+        }
+
+        pub fn send_server_update(channels: &Vec<Sender<ServableDataReq>>, update: &ServerUpdate) {
+            for channel in channels.iter() {
+                channel
+                    .send(ServableDataReq::Set((*update).to_owned()))
+                    .unwrap();
+            }
+        }
+
+        pub fn get_server_data(channels: &Vec<Sender<ServableDataReq>>) -> ServerData {
+            let mut num_tx = 0;
+            let (tx, rx) = mpsc::channel::<ServableDataRsp>();
+            for channel in channels.iter() {
+                channel.send(ServableDataReq::Get(tx.clone())).unwrap();
+                num_tx += 1;
+            }
+
+            let mut server_data = ServerData::new();
+
+            let mut num_rx = 0;
+            while num_rx < num_tx {
+                if let Ok(rsp) = rx.recv() {
+                    if let ServableDataRsp::Data(serve_data) = rsp {
+                        server_data.merge(&serve_data);
+                    }
+                    // Whether the data is present or not, we got a repsonse, so increment our
+                    // count
+                    num_rx += 1;
+                }
+                // TODO: Some kind of timeout or check for no response
+            }
+
+            server_data
         }
 
         pub fn stop(&mut self) {
@@ -183,20 +257,7 @@ pub mod server {
         }
     }
 
-    #[derive(Debug)]
-    pub enum ServableDataReq<T> {
-        Set(T),
-        Get,
-        Reset,
-    }
-
-    pub enum ServableDataRsp<T> {
-        Data(T),
-        Done,
-        Error,
-    }
-
-    pub trait ServableData<T> {
-        fn set_channel(&mut self) -> Sender<ServableDataReq<T>>;
+    pub trait ServableData {
+        fn get_channel(&mut self) -> Sender<ServableDataReq>;
     }
 }

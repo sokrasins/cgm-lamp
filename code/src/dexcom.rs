@@ -1,10 +1,12 @@
 pub mod dexcom {
+    use crate::server::server::{ServableData, ServableDataReq, ServableDataRsp, ServerData};
     use crate::storage::storage::Storable;
     use embedded_svc::{http::client::Client, io::Write, utils::io};
     use esp_idf_svc::http::client::{Configuration as HttpConfiguration, EspHttpConnection};
     use log::{error, info};
     use serde::{Deserialize, Serialize};
     use serde_json;
+    use std::sync::mpsc;
 
     pub const APPLICATION_ID: &'static str = "d89443d2-327c-4a6f-89e5-496bbb0317db";
 
@@ -105,6 +107,7 @@ pub mod dexcom {
         session: String,
         user_name: Option<String>,
         user_pass: Option<String>,
+        server_channel: Option<mpsc::Receiver<ServableDataReq>>,
     }
 
     impl Dexcom {
@@ -124,6 +127,7 @@ pub mod dexcom {
                 session: "".to_string(),
                 user_name: None,
                 user_pass: None,
+                server_channel: None,
             }
         }
 
@@ -284,6 +288,32 @@ pub mod dexcom {
 
             Ok("".to_owned())
         }
+
+        pub fn handle_server_req(&mut self) {
+            if let Some(channel) = &self.server_channel {
+                if let Ok(req) = channel.try_recv() {
+                    info!("wifi got a request from server");
+
+                    if let ServableDataReq::Get(back_channel) = &req {
+                        info!("Sending wifi state to server");
+                        let mut rsp = ServerData::new();
+                        rsp.dexcom_user_stored = Some(self.user_name.is_some());
+                        rsp.dexcom_pass_stored = Some(self.user_pass.is_some());
+                        back_channel.send(ServableDataRsp::Data(rsp)).unwrap();
+                    }
+
+                    if let ServableDataReq::Set(update) = &req {
+                        if let Some(dexcom_uname) = &update.dexcom_user {
+                            self.user_name = Some(dexcom_uname.clone());
+                        }
+
+                        if let Some(dexcom_pass) = &update.dexcom_pass {
+                            self.user_pass = Some(dexcom_pass.clone());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[derive(Serialize, Deserialize)]
@@ -310,6 +340,14 @@ pub mod dexcom {
             let nvs_state = serde_json::from_slice::<NvsDexcomState>(data).unwrap();
             self.user_name = nvs_state.user_name;
             self.user_pass = nvs_state.user_pass;
+        }
+    }
+
+    impl ServableData for Dexcom {
+        fn get_channel(&mut self) -> mpsc::Sender<ServableDataReq> {
+            let (tx, rx) = mpsc::channel::<ServableDataReq>();
+            self.server_channel = Some(rx);
+            tx
         }
     }
 }

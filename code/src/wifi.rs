@@ -1,5 +1,7 @@
 pub mod wifi {
+    use crate::server::server::{ServableData, ServableDataReq, ServableDataRsp, ServerData};
     use crate::storage::storage::Storable;
+
     use embedded_svc::wifi::{
         AccessPointConfiguration, AuthMethod, ClientConfiguration, Configuration,
     };
@@ -9,7 +11,9 @@ pub mod wifi {
     use esp_idf_svc::mdns::EspMdns;
     use esp_idf_svc::nvs::{EspNvsPartition, NvsDefault};
     use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
+
     use serde::{Deserialize, Serialize};
+    use std::sync::mpsc;
 
     use log::info;
 
@@ -23,6 +27,7 @@ pub mod wifi {
         mdns: EspMdns,
         ap_ssid: Option<String>,
         ap_psk: Option<String>,
+        server_channel: Option<mpsc::Receiver<ServableDataReq>>,
     }
 
     impl<'a> Wifi<'a> {
@@ -49,6 +54,7 @@ pub mod wifi {
                 mdns,
                 ap_ssid: None,
                 ap_psk: None,
+                server_channel: None,
             })
         }
 
@@ -139,6 +145,32 @@ pub mod wifi {
 
             Ok(())
         }
+
+        pub fn handle_server_req(&mut self) {
+            if let Some(channel) = &self.server_channel {
+                if let Ok(req) = channel.try_recv() {
+                    info!("wifi got a request from server");
+
+                    if let ServableDataReq::Get(back_channel) = &req {
+                        info!("Sending wifi state to server");
+                        let mut rsp = ServerData::new();
+                        rsp.ap_ssid_stored = Some(self.ap_ssid.is_some());
+                        rsp.ap_psk_stored = Some(self.ap_psk.is_some());
+                        back_channel.send(ServableDataRsp::Data(rsp)).unwrap();
+                    }
+
+                    if let ServableDataReq::Set(update) = &req {
+                        if let Some(ap_ssid) = &update.ap_ssid {
+                            self.ap_ssid = Some(ap_ssid.clone());
+                        }
+
+                        if let Some(ap_psk) = &update.ap_psk {
+                            self.ap_psk = Some(ap_psk.clone());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[derive(Serialize, Deserialize)]
@@ -165,6 +197,14 @@ pub mod wifi {
             let nvs_state = serde_json::from_slice::<NvsWifiState>(data).unwrap();
             self.ap_ssid = nvs_state.ap_ssid;
             self.ap_psk = nvs_state.ap_psk;
+        }
+    }
+
+    impl<'a> ServableData for Wifi<'a> {
+        fn get_channel(&mut self) -> mpsc::Sender<ServableDataReq> {
+            let (tx, rx) = mpsc::channel::<ServableDataReq>();
+            self.server_channel = Some(rx);
+            tx
         }
     }
 }

@@ -15,7 +15,6 @@ use cgmlamp::dexcom::dexcom::Dexcom;
 use cgmlamp::lamp::lamp::Lamp;
 use cgmlamp::lamp::lamp::{LedState, WHITE};
 use cgmlamp::server::server::Server;
-use cgmlamp::settings::settings::Store;
 use cgmlamp::storage::storage::Storage;
 use cgmlamp::wifi::wifi::Wifi;
 
@@ -54,22 +53,32 @@ fn main() -> anyhow::Result<()> {
     indicator_pin.set_high()?;
 
     // Non-volatile State
-    let mut storage = Storage::new(&nvs);
+    let storage = Storage::new(&nvs);
 
     // App state
     let mut app_state = AppState::Boot;
 
     // Create dexcom object
     let mut dexcom = Dexcom::new();
-    storage.recall(&mut dexcom);
+    storage.recall(&mut dexcom).unwrap_or_else(|error| {
+        info!("Couldn't load dexcom settings from flash: {}", error);
+    });
 
     let mut lamp = Lamp::new(peripherals.pins.gpio8, peripherals.rmt.channel0);
-    storage.recall(&mut lamp);
+    storage.recall(&mut lamp).unwrap_or_else(|error| {
+        info!("Couldn't load lamp settings from flash: {}", error);
+    });
 
     let mut wifi = Wifi::new(peripherals.modem, &sys_loop, &nvs).unwrap();
-    storage.recall(&mut wifi);
+    storage.recall(&mut wifi).unwrap_or_else(|error| {
+        info!("Couldn't load wifi settings from flash: {}", error);
+    });
 
+    // Instantiate server and register anything that provides data to the server
     let mut server = Server::new();
+    server.add_data_channel(&mut lamp);
+    server.add_data_channel(&mut wifi);
+    server.add_data_channel(&mut dexcom);
 
     let mut no_measurement_count = 0;
     let mut last_query: u64 = 0;
@@ -115,6 +124,11 @@ fn main() -> anyhow::Result<()> {
             }
             last_button_state = button_state;
         }
+
+        // Let each object that has server-relevant data handle any server requests
+        lamp.handle_server_req();
+        wifi.handle_server_req();
+        dexcom.handle_server_req();
 
         match app_state {
             AppState::Boot => {

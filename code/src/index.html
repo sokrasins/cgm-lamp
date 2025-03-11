@@ -76,6 +76,8 @@ const send_settings = async () => {
   try {
       let entries = Object.fromEntries(new FormData(form).entries());
       entries["brightness"] = parseInt(entries["brightness"]);
+      entries["on"] = true;
+      console.log(entries)
       entries = removeEmptyValues(entries)
       let resp = await fetch(url, {
           method: "POST",
