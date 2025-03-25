@@ -146,7 +146,23 @@ pub mod lamp {
         }
 
         pub fn change_brightness(&mut self, brightness: i32) {
+            // If the brightness is already max, don't change it
+            if self.brightness >= 1.0 || self.brightness <= 0.0 {
+                return;
+            }
+
             self.brightness += (brightness as f32) / 255.0;
+
+            // Don't let brightness be more than 1
+            if self.brightness > 1.0 {
+                self.brightness = 1.0;
+            }
+
+            // Don't let brightness be less than 0
+            if self.brightness < 0.0 {
+                self.brightness = 0.0;
+            }
+
             self.last_changed = uptime();
             self.save_data = true;
             self.set_led();
