@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CGM Lamp control panel</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💡</text></svg>">
 <style type="text/css">
 
 body {
@@ -15,25 +16,65 @@ body {
   color: color-mix(in srgb, CanvasText, Canvas 15%);
   color-scheme: light dark;
 }
+
 input {
     width: 100%;
     height: 3em;
     margin-bottom: 1em;
 }
+
+table {
+  width: 100%;
+}
+
+.slider {
+  -webkit-appearance: none;  /* Override default CSS styles */
+  appearance: none;
+  width: 100%; /* Full-width */
+  height: 25px; /* Specified height */
+  background: #606060; /* Grey background */
+  outline: none; /* Remove outline */
+  opacity: 0.7; /* Set transparency (for mouse-over effects on hover) */
+  -webkit-transition: .2s; /* 0.2 seconds transition on hover */
+  transition: opacity .2s;
+}
+
+.slider:hover {
+  opacity: 1; /* Fully shown on mouse-over */
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; /* Override default look */
+  appearance: none;
+  width: 25px; /* Set a specific slider handle width */
+  height: 25px; /* Slider handle height */
+  background: #f0f0f0; /* Gray background */
+  cursor: pointer; /* Cursor on hover */
+}
+
+.slider::-moz-range-thumb {
+  width: 25px; /* Set a specific slider handle width */
+  height: 25px; /* Slider handle height */
+  background: #f0f0f0; /* Gray background */
+  cursor: pointer; /* Cursor on hover */
+}
+
 </style>
 </head>
 <body>
-<h1>CGM Lamp Configuration Panel</h1>
-To change the configuration for you lamp, enter the changes here and click "submit"<br>
-
-<!-- todo: separate into different forms, with separate submit buttons -->
+<table>
+  <tr>
+    <td><h1>CGM Lamp Configuration Panel</h1></td>
+    <td align=right><h2> <b id="uptime">0s</b> <b id="battery_capacity"></b></h2></td>
+  </tr>
+</table>
 <form id="app-settings" action="" method="post" accept-charset="utf-8">
 <h2>Device Settings</h2>
 <label for="brightness">Lamp Brightness</label>
 <input type="range" min="0" max="255" value="64" step="1" class="slider" id="brightness" name="brightness">
 
 <h2>Wifi Credentials</h2>
-<label for="ap-name">Wifi Name:</label>
+<label for="ap-ssid">Wifi Name:</label>
 <input type="text" id="ap-ssid" name="ap_ssid" placeholder="Enter wifi name"><br>
 <label for="ap-psk">Wifi Password:</label>
 <input type="password" id="ap-psk" name="ap_psk" placeholder="Enter wifi password"><br>
@@ -77,7 +118,6 @@ const send_settings = async () => {
       let entries = Object.fromEntries(new FormData(form).entries());
       entries["brightness"] = parseInt(entries["brightness"]);
       entries["on"] = true;
-      console.log(entries)
       entries = removeEmptyValues(entries)
       let resp = await fetch(url, {
           method: "POST",
@@ -119,23 +159,7 @@ resetAll.addEventListener("submit", async (e) => {
   }
 });
 
-document.getElementById("brightness").onchange = send_settings;
-
-// Ask for state information to update form fields
-document.addEventListener("DOMContentLoaded", async () => {
-  let url = window.location.href + api_state;
-  //print(window.location.href);
-
-  try {
-      let resp = await fetch(url, {
-          method: "GET",
-          headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-          },
-      });
-      body = await resp.json();
-
+const update_form = (json) => {
     // Get form elements
     const ap_ssid = document.getElementById('ap-ssid');
     const ap_psk = document.getElementById('ap-psk');
@@ -184,10 +208,85 @@ document.addEventListener("DOMContentLoaded", async () => {
     {
       lamp_brightness.value = body.brightness;
     }
+}
 
+const update_status = (json) => {
+    if (body.uptime !== null)
+    {
+      let legend = "⬆️ "
+      let time = body.uptime
+      let unit = "s"
+      if (time > 60)
+      {
+        time = time/60
+        unit = "m"
+
+        if (time > 60)
+        {
+          time = time/60
+          unit = "h"
+
+          if (time > 24)
+          {
+            time = time/24
+            unit = "d"
+          }
+        }
+      }
+
+      document.getElementById("uptime").innerText = legend + Math.round(time).toString() + unit
+    }
+
+    if (body.bat_capacity !== null)
+    {
+      let legend = "🔋"
+      let capacity = Math.round(body.bat_capacity)
+      if (capacity > 100) { capacity = 100 }
+      if (capacity <= 10) { legend = "🪫" }
+      //if (body.bat_charging) { legend = "⚡" }
+      document.getElementById("battery_capacity").innerText = legend + " " + capacity.toString() + "%";
+    }
+}
+
+document.getElementById("brightness").onchange = send_settings;
+
+// Ask for state information to update form fields
+document.addEventListener("DOMContentLoaded", async () => {
+  let url = window.location.href + api_state;
+  //print(window.location.href);
+
+  try {
+      let resp = await fetch(url, {
+          method: "GET",
+          headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+          },
+      });
+      body = await resp.json();
+
+      update_form(body)
+      update_status(body)
   } catch (err) {
       console.error(err);
   }
+
+  // Every 10 seconds update the status bar
+  setInterval(async () => {
+    try {
+      let resp = await fetch(url, {
+          method: "GET",
+          headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+          },
+      });
+      body = await resp.json();
+      update_status(body)
+    } catch (err) {
+        console.error(err);
+    }
+  }, 60000);
 })
 
 </script>
