@@ -147,9 +147,6 @@ pub mod lamp {
 
         pub fn change_brightness(&mut self, brightness: i32) {
             // If the brightness is already max, don't change it
-            if self.brightness >= 1.0 || self.brightness <= 0.0 {
-                return;
-            }
 
             self.brightness += (brightness as f32) / 255.0;
 
