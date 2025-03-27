@@ -24,14 +24,9 @@ An ESP32-C6-powered device to indicate glucose as a color
 - ✅ Included battery, allows fully-wireless operation
   - ✅ Operation with battery optional
   - Indicators for:
-    - Remaining capacity
+    - ✅ Remaining capacity
     - Charge state
-    - Battery preset/absent
 - ✅ USB-C port for charging and debug
   - ✅ Provides both debug console and power/charge
 - Re-flash as a generic ESPHome device
 - ✅ Optional terminal to extend Neopixel configuration
-- Configurable credential storage mode
-  - Amnesia
-  - Password-protected
-  - Permissive
