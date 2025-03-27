@@ -27,6 +27,22 @@ table {
   width: 100%;
 }
 
+div.settings {
+  display: grid;
+  grid-template-columns: max-content auto;
+  grid-gap:10px;
+}
+
+div.settings label        { text-align:right; }
+
+input[type=submit] {
+  font-weight: bold;
+}
+
+/* label { */
+/*   font-size: 18px; */
+/* } */
+
 .slider {
   -webkit-appearance: none;  /* Override default CSS styles */
   appearance: none;
@@ -65,59 +81,78 @@ table {
 <table>
   <tr>
     <td><h1>CGM Lamp Configuration Panel</h1></td>
-    <td align=right><h2> <b id="uptime">0s</b> <b id="battery_capacity"></b></h2></td>
+    <td align=right><h2> <b id="uptime"></b> <b id="battery_capacity"></b></h2></td>
   </tr>
 </table>
-<form id="app-settings" action="" method="post" accept-charset="utf-8">
 <h2>Device Settings</h2>
-<label for="brightness">Lamp Brightness</label>
-<input type="range" min="0" max="255" value="64" step="1" class="slider" id="brightness" name="brightness">
-
-<h2>Wifi Credentials</h2>
-<label for="ap-ssid">Wifi Name:</label>
-<input type="text" id="ap-ssid" name="ap_ssid" placeholder="Enter wifi name"><br>
-<label for="ap-psk">Wifi Password:</label>
-<input type="password" id="ap-psk" name="ap_psk" placeholder="Enter wifi password"><br>
-
-<h2>Dexcom Credentials</h2>
-<label for="dexcom-name">Dexcom User:</label>
-<input type="text" id="dexcom-name" name="dexcom_user" placeholder="Enter Dexcom username"><br>
-<label for="dexcom-pass">Dexcom Password:</label>
-<input type="password" id="dexcom-pass" name="dexcom_pass" placeholder="Enter Dexcom password"><br>
+<form id="device-settings" action="" method="post" accept-charset="utf-8">
+  <div class="settings">
+    <label for="brightness">Brightness:</label>
+    <input type="range" min="0" max="255" value="64" step="1" class="slider" id="brightness" name="brightness">
+  </div>
+</form>
 <br>
-<input type="submit" value="Submit">
+<h2>Credentials</h2>
+<form id="credentials" action="" method="post" accept-charset="utf-8">
+  <div class="settings">
+    <label for="ap-ssid">Wifi Name:</label>
+    <input type="text" id="ap-ssid" name="ap_ssid" placeholder="Enter wifi name">
+    <label for="ap-psk">Wifi Pass:</label>
+    <input type="password" id="ap-psk" name="ap_psk" placeholder="Enter wifi password">
+    <label for="dexcom-name">CGM User:</label>
+    <input type="text" id="dexcom-name" name="dexcom_user" placeholder="Enter CGM username">
+    <label for="dexcom-pass">CGM Pass:</label>
+    <input type="password" id="dexcom-pass" name="dexcom_pass" placeholder="Enter CGM password">
+    <br>
+    <input type="submit" value="Apply">
+  </div>
 </form>
 
+<br>
+<br>
+
 <form id="reset-all" action="" method="post" accept-charset="utf-8">
-<h2>Factory Reset</h2>
-<input type="submit" value="Reset">
+  <input type="submit" value="Reset All Settings">
 </form>
 
 <p id="server-resp"></p>
-<script type="text/javascript">
 
+<script type="text/javascript">
 const removeEmptyValues = (object) =>
   Object.fromEntries(
     Object.entries(object)
       .filter(([_, value]) => value)
   )
 
-let theForm = document.getElementById("app-settings");
-let resetAll = document.getElementById("reset-all");
-let serverResp = document.getElementById("server-resp");
+let device_form = document.getElementById("device-settings");
+let creds_form  = document.getElementById("credentials");
+let resetAll    = document.getElementById("reset-all");
+
+let serverResp  = document.getElementById("server-resp");
 
 const api_state = "api/v1/state"
-const api_set = "api/v1/set"
+const api_set   = "api/v1/set"
 const api_reset = "api/v1/reset"
 
-const send_settings = async () => {
-  let form = document.getElementById("app-settings");
-  let url = window.location.href + api_set;
+const send_device_settings = async (e) => {
+  e.preventDefault();
 
+  let entries = Object.fromEntries(new FormData(device_form).entries());
+  entries["brightness"] = parseInt(entries["brightness"]);
+  entries["on"] = true;
+
+  await send_settings(entries)
+}
+
+const send_credentials = async (e) => {
+  e.preventDefault();
+  let entries = Object.fromEntries(new FormData(creds_form).entries());
+  await send_settings(entries)
+}
+
+const send_settings = async (entries) => {
+  let url = window.location.href + api_set;
   try {
-      let entries = Object.fromEntries(new FormData(form).entries());
-      entries["brightness"] = parseInt(entries["brightness"]);
-      entries["on"] = true;
       entries = removeEmptyValues(entries)
       let resp = await fetch(url, {
           method: "POST",
@@ -133,12 +168,8 @@ const send_settings = async () => {
   }
 }
 
-const send_settings_submit = async (e) => {
-  e.preventDefault();
-  await send_settings();
-}
-
-theForm.addEventListener("submit", send_settings_submit);
+//device_form.addEventListener("submit", send_device_settings);
+credentials.addEventListener("submit", send_credentials);
 
 resetAll.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -188,20 +219,20 @@ const update_form = (json) => {
 
     if (body.dexcom_user_stored)
     {
-      dexcom_user.placeholder = "Dexcom username already stored"
+      dexcom_user.placeholder = "CGM username already stored"
     }
     else
     {
-      dexcom_user.placeholder = "Enter Dexcom username"
+      dexcom_user.placeholder = "Enter CGM username"
     }
 
     if (body.dexcom_pass_stored)
     {
-      dexcom_pass.placeholder = "Dexcom password already stored"
+      dexcom_pass.placeholder = "CGM password already stored"
     }
     else
     {
-      dexcom_pass.placeholder = "Enter Dexcom password"
+      dexcom_pass.placeholder = "Enter CGM password"
     }
 
     if (body.brightness !== null)
@@ -248,7 +279,7 @@ const update_status = (json) => {
     }
 }
 
-document.getElementById("brightness").onchange = send_settings;
+document.getElementById("brightness").onchange = send_device_settings;
 
 // Ask for state information to update form fields
 document.addEventListener("DOMContentLoaded", async () => {

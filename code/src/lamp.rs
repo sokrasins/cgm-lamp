@@ -265,15 +265,22 @@ pub mod lamp {
                     }
 
                     if let ServableDataReq::Set(update) = &req {
-                        self.set_brightness(update.brightness);
-                        if update.on {
-                            self.on();
-                            self.last_changed = uptime();
-                            self.save_data = true;
-                        } else {
-                            self.off();
-                            self.last_changed = uptime();
-                            self.save_data = true;
+                        // If we got a brightness, then change our value
+                        if let Some(brightness) = &update.brightness {
+                            self.set_brightness(*brightness);
+                        }
+
+                        // If we got a power state, then change our value
+                        if let Some(on) = &update.on {
+                            if *on {
+                                self.on();
+                                self.last_changed = uptime();
+                                self.save_data = true;
+                            } else {
+                                self.off();
+                                self.last_changed = uptime();
+                                self.save_data = true;
+                            }
                         }
                     }
 

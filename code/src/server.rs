@@ -25,8 +25,8 @@ pub mod server {
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct ServerUpdate {
-        pub brightness: u8,
-        pub on: bool,
+        pub brightness: Option<u8>,
+        pub on: Option<bool>,
         pub ap_ssid: Option<String>,
         pub ap_psk: Option<String>,
         pub dexcom_user: Option<String>,
@@ -37,7 +37,6 @@ pub mod server {
     pub struct ServerData {
         pub brightness: Option<u8>,
         pub on: Option<bool>,
-        //cred_store: Option<String>,
         pub ap_ssid_stored: Option<bool>,
         pub ap_psk_stored: Option<bool>,
         pub dexcom_user_stored: Option<bool>,
@@ -70,7 +69,6 @@ pub mod server {
         pub fn merge(&mut self, other: &ServerData) {
             self.brightness = self.brightness.or(other.brightness);
             self.on = self.on.or(other.on);
-            //self.cred_store = self.cred_store.clone().or(other.cred_store.clone());
             self.ap_ssid_stored = self.ap_ssid_stored.or(other.ap_ssid_stored);
             self.ap_psk_stored = self.ap_psk_stored.or(other.ap_psk_stored);
             self.dexcom_user_stored = self.dexcom_user_stored.or(other.dexcom_user_stored);
